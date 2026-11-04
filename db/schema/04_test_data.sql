@@ -22,19 +22,6 @@ BEGIN
 END;
 $$;
 
-CREATE OR REPLACE FUNCTION trondin_food.courier_next_coefficient(cnt bigint)
-RETURNS NUMERIC(2,1)
-LANGUAGE sql
-IMMUTABLE
-AS $$
-    SELECT CASE
-        WHEN cnt IS NULL OR cnt <= 150 THEN 0.1
-        WHEN cnt <= 250                THEN 0.2
-        WHEN cnt <= 500                THEN 0.3
-        ELSE                                0.5
-    END;
-$$;
-
 CREATE OR REPLACE PROCEDURE trondin_food.insert_test_data(value int)
 LANGUAGE plpgsql
 SET search_path = trondin_food, exts
@@ -76,9 +63,10 @@ BEGIN
     INTO v_client_ids
     FROM generate_series(1, value);
 
-    SELECT COALESCE(MAX(phone_number)::bigint, 79000000000)
+    SELECT COALESCE(MAX(phone_number)::bigint, 70000000000)
     INTO v_base_client_phone
-    FROM trondin_food.client;
+    FROM trondin_food.client
+    WHERE phone_number LIKE '70%';
 
     INSERT INTO trondin_food.client (
         client_id,
@@ -96,9 +84,10 @@ BEGIN
     INTO v_courier_ids
     FROM generate_series(1, value);
 
-    SELECT COALESCE(MAX(phone_number)::bigint, 79000000000)
+    SELECT COALESCE(MAX(phone_number)::bigint, 70000000000)
     INTO v_base_courier_phone
-    FROM trondin_food.courier;
+    FROM trondin_food.courier
+    WHERE phone_number LIKE '70%';
 
     INSERT INTO trondin_food.courier (
         courier_id,
@@ -214,8 +203,8 @@ BEGIN
                o.rn::int AS rn,
                ((o.rn - 1) % value + 1)::int AS r,
                ((o.rn - 1) / value)::int AS j,
-               (floor(random() * value)::int + 1) AS k,
-               (floor(random() * value)::int + 1) AS courier_idx,
+               (floor(random() * random() * value)::int + 1) AS k,
+               (floor(random() * random() * value)::int + 1) AS courier_idx,
                floor(random() * 4)::int AS addr_j,
                v_period_start + random() * (v_now - v_period_start) AS order_ts,
                (15 + floor(random() * 106)::int) * INTERVAL '1 minute' AS deliv_delta
@@ -241,10 +230,7 @@ BEGIN
                    THEN 3
                    ELSE 1 + (b.rn % 3)
                END AS item_count,
-               CASE
-                   WHEN b.rn % 3 = 0 THEN NULL
-                   ELSE 'Комментарий к заказу ' || b.rn
-               END AS description
+               'Комментарий к заказу ' || b.rn AS description
         FROM orders_base b
     ),
     lines AS MATERIALIZED (
@@ -295,10 +281,11 @@ BEGIN
                tot.commission,
                tot.order_amount + tot.commission,
                g.status,
+               -- 1-й элемент order_pay_status — 'ожидает' (обновится после вставки payment)
                (enum_range(NULL::trondin_food.order_pay_status))[1],
                g.description
         FROM orders_gen g
-        JOIN totals tot USING (order_id)
+        JOIN totals tot ON tot.order_id = g.order_id
     )
     INSERT INTO trondin_food.order_structure (
         order_id,
@@ -332,10 +319,8 @@ BEGIN
            o.total_amount,
            'txn_' || t.payment_id,
            LEAST(o.order_timestamp + (1 + floor(random() * 30)::int) * INTERVAL '1 minute', v_now),
-           CASE
-               WHEN o.status = 'доставлен' THEN 'успех'::trondin_food.payment_status
-               ELSE (enum_range(NULL::trondin_food.payment_status))[1 + t.rn % 3]
-           END
+           -- 1-й элемент payment_status — 'успех' (по BR-8.1 у каждого заказа должна быть успешная оплата)
+           (enum_range(NULL::trondin_food.payment_status))[1]
     FROM unnest(v_payment_ids, v_order_ids) WITH ORDINALITY AS t(payment_id, order_id, rn)
     JOIN trondin_food."order" o ON o.order_id = t.order_id;
 
@@ -386,22 +371,43 @@ BEGIN
            END,
            floor(random() * 5)::int + 1
     FROM unnest(v_review_ids) WITH ORDINALITY AS t(id, rn)
-    -- В шаге 8 статус задаётся через enum_range[1 + j], где 'доставлен' — 4-й элемент (j = 3),
+    -- При генерации заказов статус задаётся через enum_range[1 + j], где 'доставлен' — 4-й элемент (j = 3),
     -- поэтому доставленные заказы лежат в v_order_ids со смещением 3 * value.
     JOIN trondin_food."order" o
       ON o.order_id = v_order_ids[3 * value + ((t.rn - 1) % value + 1)];
 
-    -- 11. courier_pay (за 6 месяцев) и обновление courier.coefficient
-    WITH courier_months AS MATERIALIZED (
+    UPDATE trondin_food.product p
+    SET rating = sub.avg_rating
+    FROM (
+        SELECT r.entity_id,
+               ROUND(AVG(r.rating), 2) AS avg_rating
+        FROM trondin_food.review r
+        WHERE r.entity_type = 'блюдо'
+          AND r.entity_id = ANY(v_product_ids)
+        GROUP BY r.entity_id
+    ) sub
+    WHERE p.product_id = sub.entity_id;
+
+    UPDATE trondin_food.restaurant rest
+    SET rating = sub.avg_rating
+    FROM (
+        SELECT r.entity_id,
+               ROUND(AVG(r.rating), 2) AS avg_rating
+        FROM trondin_food.review r
+        WHERE r.entity_type = 'ресторан'
+          AND r.entity_id = ANY(v_restaurant_ids)
+        GROUP BY r.entity_id
+    ) sub
+    WHERE rest.restaurant_id = sub.entity_id;
+
+    WITH courier_grid AS (
         SELECT c.courier_id,
                gs.month_start,
                COALESCE(ord.delivered_cnt, 0) AS delivered_cnt,
                COALESCE(ord.commission_sum, 0) AS commission_sum,
-               trondin_food.courier_next_coefficient(
-                   LAG(COALESCE(ord.delivered_cnt, 0)) OVER (
-                       PARTITION BY c.courier_id ORDER BY gs.month_start
-                   )
-               ) AS coeff_used
+               LAG(COALESCE(ord.delivered_cnt, 0)) OVER (
+                   PARTITION BY c.courier_id ORDER BY gs.month_start
+               ) AS prev_cnt
         FROM unnest(v_courier_ids) AS c(courier_id)
         CROSS JOIN generate_series(
             v_period_start,
@@ -421,6 +427,19 @@ BEGIN
           ON ord.courier_id = c.courier_id
          AND ord.order_month = gs.month_start
     ),
+    courier_months AS MATERIALIZED (
+        SELECT cg.courier_id,
+               cg.month_start,
+               cg.delivered_cnt,
+               cg.commission_sum,
+               CASE
+                   WHEN cg.prev_cnt IS NULL OR cg.prev_cnt <= 150 THEN 0.1
+                   WHEN cg.prev_cnt <= 250                        THEN 0.2
+                   WHEN cg.prev_cnt <= 500                        THEN 0.3
+                   ELSE                                                0.5
+               END AS coeff_used
+        FROM courier_grid cg
+    ),
     inserted_pay AS (
         INSERT INTO trondin_food.courier_pay (
             year,
@@ -438,8 +457,11 @@ BEGIN
     )
     UPDATE trondin_food.courier c
     SET coefficient = CASE
-        WHEN c.status = 'уволен' THEN cm.coeff_used
-        ELSE trondin_food.courier_next_coefficient(cm.delivered_cnt)
+        WHEN c.status = 'уволен'     THEN cm.coeff_used
+        WHEN cm.delivered_cnt <= 150 THEN 0.1
+        WHEN cm.delivered_cnt <= 250 THEN 0.2
+        WHEN cm.delivered_cnt <= 500 THEN 0.3
+        ELSE                              0.5
     END
     FROM courier_months cm
     WHERE c.courier_id = cm.courier_id

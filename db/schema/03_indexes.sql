@@ -4,9 +4,9 @@ SET search_path TO trondin_food, exts;
 
 CREATE UNIQUE INDEX uq_address_location
     ON trondin_food.address (
-        street,
-        house_number,
-        COALESCE(apartment_office, '')
+        LOWER(street),
+        LOWER(house_number),
+        LOWER(COALESCE(apartment_office, ''))
     );
 
 CREATE UNIQUE INDEX uq_payment_order_success

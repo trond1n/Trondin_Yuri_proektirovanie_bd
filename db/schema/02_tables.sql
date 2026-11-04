@@ -14,22 +14,22 @@ address_id       UUID         NOT NULL DEFAULT exts.uuid_generate_v4(),
         PRIMARY KEY (address_id),
     
     CONSTRAINT chk_address_street
-        CHECK (BTRIM(street) <> ''),
+        CHECK (street ~ '\S'),
     
     CONSTRAINT chk_address_street_trimmed
-        CHECK (street = BTRIM(street)),
+        CHECK (street !~ '^\s|\s$'),
     
     CONSTRAINT chk_address_house_number
-        CHECK (BTRIM(house_number) <> ''),
+        CHECK (house_number ~ '\S'),
     
     CONSTRAINT chk_address_house_number_trimmed
-        CHECK (house_number = BTRIM(house_number)),
+        CHECK (house_number !~ '^\s|\s$'),
     
     CONSTRAINT chk_address_apartment_office
-        CHECK (BTRIM(apartment_office) <> ''),
+        CHECK (apartment_office ~ '\S'),
     
     CONSTRAINT chk_address_apartment_office_trimmed
-        CHECK (apartment_office = BTRIM(apartment_office))
+        CHECK (apartment_office !~ '^\s|\s$')
 );
 
 CREATE TABLE trondin_food.client (
@@ -49,10 +49,10 @@ CREATE TABLE trondin_food.client (
         UNIQUE (phone_number),
     
     CONSTRAINT chk_client_login
-        CHECK (BTRIM(login) <> ''),
+        CHECK (login ~ '\S'),
     
     CONSTRAINT chk_client_login_trimmed
-        CHECK (login = BTRIM(login)),
+        CHECK (login !~ '^\s|\s$'),
     
     CONSTRAINT chk_client_password_md5
         CHECK (password ~ '^[0-9a-f]{32}$'),
@@ -75,7 +75,10 @@ CREATE TABLE trondin_food.courier (
         PRIMARY KEY (courier_id),
 
     CONSTRAINT chk_courier_fio
-        CHECK (BTRIM(fio) <> ''),
+        CHECK (fio ~ '\S'),
+
+    CONSTRAINT chk_courier_fio_trimmed
+        CHECK (fio !~ '^\s|\s$'),
 
     CONSTRAINT chk_courier_phone_number
         CHECK (phone_number ~ '^7[0-9]{10}$'),
@@ -106,7 +109,10 @@ CREATE TABLE trondin_food.product_category (
         PRIMARY KEY (product_category_id),
 
     CONSTRAINT chk_product_category_name
-        CHECK (BTRIM(product_category_name) <> '')
+        CHECK (product_category_name ~ '\S'),
+
+    CONSTRAINT chk_product_category_name_trimmed
+        CHECK (product_category_name !~ '^\s|\s$')
 );
 
 
@@ -151,13 +157,16 @@ CREATE TABLE trondin_food.restaurant (
         ON DELETE RESTRICT,
 
     CONSTRAINT chk_restaurant_name
-        CHECK (BTRIM(restaurant_name) <> ''),
+        CHECK (restaurant_name ~ '\S'),
+
+    CONSTRAINT chk_restaurant_name_trimmed
+        CHECK (restaurant_name !~ '^\s|\s$'),
 
     CONSTRAINT chk_restaurant_description
-        CHECK (BTRIM(description) <> ''),
+        CHECK (description ~ '\S'),
 
     CONSTRAINT chk_restaurant_company_details
-        CHECK (BTRIM(company_details) <> ''),
+        CHECK (company_details ~ '\S'),
 
     CONSTRAINT chk_restaurant_schedule
         CHECK (work_end > work_start),
@@ -220,15 +229,18 @@ CREATE TABLE trondin_food.product (
         ON DELETE RESTRICT,
 
     CONSTRAINT chk_product_name
-        CHECK (BTRIM(product_name) <> ''),
+        CHECK (product_name ~ '\S'),
+
+    CONSTRAINT chk_product_name_trimmed
+        CHECK (product_name !~ '^\s|\s$'),
 
     CONSTRAINT chk_product_description
-        CHECK (BTRIM(description) <> ''),
+        CHECK (description ~ '\S'),
 
     CONSTRAINT chk_product_photo_url
         CHECK (
             photo_url IS NULL
-            OR BTRIM(photo_url) <> ''
+            OR photo_url ~ '\S'
         ),
 
     CONSTRAINT chk_product_price
@@ -252,7 +264,7 @@ CREATE TABLE trondin_food."order" (
     total_amount       NUMERIC(10,2) NOT NULL,
     status             trondin_food.order_status NOT NULL DEFAULT 'создан',
     pay_status         trondin_food.order_pay_status NOT NULL DEFAULT 'ожидает',
-    description        TEXT,
+    description        TEXT          NOT NULL,
 
     CONSTRAINT pk_order
         PRIMARY KEY (order_id),
@@ -292,10 +304,7 @@ CREATE TABLE trondin_food."order" (
         ON DELETE RESTRICT,
 
     CONSTRAINT chk_order_description
-        CHECK (
-            description IS NULL
-            OR BTRIM(description) <> ''
-        ),
+        CHECK (description ~ '\S'),
 
     CONSTRAINT chk_order_order_amount
         CHECK (order_amount > 0),
@@ -356,12 +365,12 @@ CREATE TABLE trondin_food.review (
         ON DELETE CASCADE,
 
     CONSTRAINT chk_review_description
-        CHECK (BTRIM(description) <> ''),
+        CHECK (description ~ '\S'),
 
     CONSTRAINT chk_review_photo_url
         CHECK (
             photo_url IS NULL
-            OR BTRIM(photo_url) <> ''
+            OR photo_url ~ '\S'
         ),
 
     CONSTRAINT chk_review_rating
@@ -389,13 +398,11 @@ CREATE TABLE trondin_food.order_structure (
 
     CONSTRAINT fk_order_structure_order_restaurant
         FOREIGN KEY (order_id, restaurant_id)
-        REFERENCES trondin_food."order" (order_id, restaurant_id)
-        ON UPDATE CASCADE,
+        REFERENCES trondin_food."order" (order_id, restaurant_id),
 
     CONSTRAINT fk_order_structure_product_restaurant
         FOREIGN KEY (product_id, restaurant_id)
-        REFERENCES trondin_food.product (product_id, restaurant_id)
-        ON UPDATE CASCADE,
+        REFERENCES trondin_food.product (product_id, restaurant_id),
 
     CONSTRAINT chk_order_structure_quantity
         CHECK (quantity > 0)
@@ -419,18 +426,18 @@ CONSTRAINT pk_payment
     
     CONSTRAINT fk_payment_order
         FOREIGN KEY (order_id)
-        REFERENCES "order" (order_id) ON DELETE RESTRICT,
+        REFERENCES trondin_food."order" (order_id) ON DELETE RESTRICT,
     
     CONSTRAINT fk_payment_order_amount
         FOREIGN KEY (order_id, amount)
-        REFERENCES "order" (order_id, total_amount) ON DELETE RESTRICT ON UPDATE CASCADE,
+        REFERENCES trondin_food."order" (order_id, total_amount) ON DELETE RESTRICT ON UPDATE CASCADE,
     
     CONSTRAINT chk_payment_amount
         CHECK (amount >= 1000),
     
     CONSTRAINT chk_payment_transaction_id
-        CHECK (BTRIM(transaction_id) <> ''),
+        CHECK (transaction_id ~ '\S'),
     
     CONSTRAINT chk_payment_transaction_id_trimmed
-        CHECK (transaction_id = BTRIM(transaction_id))
+        CHECK (transaction_id !~ '^\s|\s$')
 );
