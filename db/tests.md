@@ -672,7 +672,7 @@ WHERE grantee = 'inspector' AND schema_name = 'trondin_food';
 ```
 
 Ожидается: `USAGE`, `CREATE` (полный доступ).
-Факт: ___
+Факт: true, true (has_schema_privilege) 
 
 ### G.2. Права на таблицы
 
