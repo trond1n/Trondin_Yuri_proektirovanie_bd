@@ -1,4 +1,4 @@
--- FOOD-105, FOOD-101 (BR-8.7, BR-9.1, BR-9.2, BR-9.6, BR-9.7)
+-- FOOD-105, FOOD-101 (BR-7.14, BR-8.7, BR-9.1, BR-9.2, BR-9.6, BR-9.7)
 
 SET search_path TO trondin_food, exts;
 
@@ -183,3 +183,119 @@ AFTER INSERT OR UPDATE OR DELETE
 ON trondin_food.payment
 FOR EACH ROW
 EXECUTE FUNCTION trondin_food.payment_pay_status_change();
+
+-- 4. Контроль непустого состава заказа (BR-7.14, BR-11.4)
+CREATE OR REPLACE FUNCTION trondin_food.check_order_has_items()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = trondin_food, exts
+AS $$
+DECLARE
+    v_order_id UUID;
+BEGIN
+    -- 1. Определить заказ для проверки по таблице события
+    IF TG_TABLE_NAME = 'order' THEN
+        v_order_id := NEW.order_id;
+    ELSIF TG_TABLE_NAME = 'order_structure' THEN
+        v_order_id := OLD.order_id;
+    END IF;
+
+    -- 2. Если такого заказа уже нет в "order", ничего не делать.
+    -- Обязательная ветка для каскадного удаления: при DELETE FROM "order"
+    -- внешний ключ fk_order_structure_order ON DELETE CASCADE удаляет позиции,
+    -- триггер на order_structure откладывается до COMMIT, и к моменту проверки
+    -- заказ уже правомерно удален из "order".
+    IF NOT EXISTS (
+        SELECT 1
+        FROM trondin_food."order" o
+        WHERE o.order_id = v_order_id
+    ) THEN
+        RETURN NULL;
+    END IF;
+
+    -- 3. Если заказ есть в "order", но у него нет позиций в order_structure — ошибка
+    IF NOT EXISTS (
+        SELECT 1
+        FROM trondin_food.order_structure os
+        WHERE os.order_id = v_order_id
+    ) THEN
+        RAISE EXCEPTION 'Заказ % не содержит позиций (BR-7.14)', v_order_id;
+    END IF;
+
+    RETURN NULL;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_order_check_items ON trondin_food."order";
+CREATE CONSTRAINT TRIGGER trg_order_check_items
+AFTER INSERT ON trondin_food."order"
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW
+EXECUTE FUNCTION trondin_food.check_order_has_items();
+
+DROP TRIGGER IF EXISTS trg_order_structure_check_items ON trondin_food.order_structure;
+CREATE CONSTRAINT TRIGGER trg_order_structure_check_items
+AFTER DELETE OR UPDATE OF order_id ON trondin_food.order_structure
+DEFERRABLE INITIALLY DEFERRED
+FOR EACH ROW
+EXECUTE FUNCTION trondin_food.check_order_has_items();
+
+-- 5. Защита позиции заказа, на которую оставлен отзыв (BR-9.2)
+CREATE OR REPLACE FUNCTION trondin_food.check_order_structure_reviewed_item()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SET search_path = trondin_food, exts
+AS $$
+BEGIN
+    -- 1. Если заказа OLD.order_id уже нет в "order", пропускаем.
+    -- Это каскадное удаление заказа (fk_order_structure_order ON DELETE CASCADE),
+    -- при котором связанные отзывы и позиции удаляются вместе с заказом.
+    IF NOT EXISTS (
+        SELECT 1
+        FROM trondin_food."order" o
+        WHERE o.order_id = OLD.order_id
+    ) THEN
+        IF TG_OP = 'DELETE' THEN
+            RETURN OLD;
+        END IF;
+        RETURN NEW;
+    END IF;
+
+    -- 2. Если для этой позиции есть отзыв на блюдо в рамках данного заказа:
+    IF EXISTS (
+        SELECT 1
+        FROM trondin_food.review r
+        WHERE r.order_id = OLD.order_id
+          AND r.entity_type = 'блюдо'
+          AND r.entity_id = OLD.product_id
+    ) THEN
+        -- при DELETE — запрет
+        IF TG_OP = 'DELETE' THEN
+            RAISE EXCEPTION 'Нельзя удалить позицию (блюдо %, заказ %), на которую оставлен отзыв (BR-9.2)',
+                OLD.product_id, OLD.order_id;
+        END IF;
+
+        -- при UPDATE — запрет, только если изменился order_id или product_id
+        IF TG_OP = 'UPDATE' AND (
+            OLD.order_id IS DISTINCT FROM NEW.order_id
+            OR OLD.product_id IS DISTINCT FROM NEW.product_id
+        ) THEN
+            RAISE EXCEPTION 'Нельзя изменить позицию (блюдо %, заказ %), на которую оставлен отзыв (BR-9.2)',
+                OLD.product_id, OLD.order_id;
+        END IF;
+    END IF;
+
+    -- 3. Возврат значения для BEFORE-триггера
+    IF TG_OP = 'DELETE' THEN
+        RETURN OLD;
+    END IF;
+    RETURN NEW;
+END;
+$$;
+
+DROP TRIGGER IF EXISTS trg_order_structure_check_reviewed_item ON trondin_food.order_structure;
+CREATE TRIGGER trg_order_structure_check_reviewed_item
+BEFORE DELETE OR UPDATE OF order_id, product_id
+ON trondin_food.order_structure
+FOR EACH ROW
+EXECUTE FUNCTION trondin_food.check_order_structure_reviewed_item();

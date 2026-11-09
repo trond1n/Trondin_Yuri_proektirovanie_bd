@@ -44,7 +44,7 @@
 | `trondin_food.payment_status` | `'успех'`, `'ошибка'`, `'в_обработке'` | BR-8.2, BR-11.5 |
 | `trondin_food.review_entity_type` | `'блюдо'`, `'ресторан'`, `'заказ'` | BR-9.1, BR-11.5 |
 
-Все 8 перечислений созданы как `CREATE TYPE ... AS ENUM` строго со значениями из `docs/company-rules.md` без добавлений и переименований.
+Все 8 перечислений созданы как `CREATE TYPE ... AS ENUM` со значениями из `docs/company-rules.md` без добавлений и переименований.
 
 ---
 
@@ -56,18 +56,18 @@
 
 **Какие атрибуты добавил в `payment` и почему** (BR-8.2):
 
-В `docs/erd.md` у `payment` указаны только `payment_id` и `order_id`. Для выполнения правил раздела 8 (BR-8.1 – 7) в таблицу `trondin_food.payment` добавлены 5 обязательных (`NOT NULL`) атрибутов:
+В `docs/erd.md` у `payment` указаны только `payment_id` и `order_id`. Для выполнения правил раздела 8 (BR-8.1–BR-8.7) в таблицу `trondin_food.payment` добавлены 5 обязательных (`NOT NULL`) атрибутов:
 1. `payment_type trondin_food.payment_type NOT NULL` — способ оплаты (`'карта'`, `'наличные'`, `'безнал'`), необходим для фиксации способа конкретной попытки оплаты (BR-8.2, BR-8.6).
-2. `amount NUMERIC(10,2) NOT NULL` - сумма попытки оплаты (BR-8.2); по BR-8.4 она обязана совпадать с общей суммой заказа `order.total_amount`, что обеспечивается составным внешним ключом `fk_payment_order_amount (order_id, amount) REFERENCES "order" (order_id, total_amount)` и ограничением `chk_payment_amount (amount >= 1000)`.
-3. `transaction_id VARCHAR(100) NOT NULL` - внешний идентификатор финансовой транзакции от платежного провайдера (BR-1.7, BR-8.2, BR-8.3, BR-8.5; данные банковских карт не хранятся), уникальность защищена ограничением `uq_payment_transaction_id`.
-4. `payment_timestamp TIMESTAMP NOT NULL DEFAULT LOCALTIMESTAMP` - дата и время транзакции в часовом поясе сервера (BR-8.2, BR-11.2).
-5. `status trondin_food.payment_status NOT NULL DEFAULT 'в_обработке'` - статус попытки оплаты (`'успех'`, `'ошибка'`, `'в_обработке'`, BR-8.2).
+2. `amount NUMERIC(10,2) NOT NULL` — сумма попытки оплаты (BR-8.2); по BR-8.4 она совпадает с общей суммой заказа `order.total_amount`, что обеспечивается составным внешним ключом `fk_payment_order_amount (order_id, amount) REFERENCES "order" (order_id, total_amount)` и ограничением `chk_payment_amount (amount >= 1000)`.
+3. `transaction_id VARCHAR(100) NOT NULL` — внешний идентификатор финансовой транзакции от платежного провайдера (BR-1.7, BR-8.2, BR-8.3, BR-8.5; данные банковских карт не хранятся), уникальность защищена ограничением `uq_payment_transaction_id`.
+4. `payment_timestamp TIMESTAMP NOT NULL DEFAULT LOCALTIMESTAMP` — дата и время транзакции в часовом поясе сервера (BR-8.2, BR-11.2).
+5. `status trondin_food.payment_status NOT NULL DEFAULT 'в_обработке'` — статус попытки оплаты (`'успех'`, `'ошибка'`, `'в_обработке'`, BR-8.2).
 
-правило BR-8.1 (ровно одна успешная попытка оплаты на заказ) реализовано частичным уникальным индексом `uq_payment_order_success ON payment (order_id) WHERE status = 'успех'`, а правило BR-8.7 (пересчет агрегированного статуса `order.pay_status`) - триггером `trg_payment_pay_status_change` на таблице `payment`.
+Частичный уникальный индекс `uq_payment_order_success ON payment (order_id) WHERE status = 'успех'` обеспечивает, что успешная оплата у заказа **не более одной**. Схема не требует обязательного наличия успешной оплаты, так как по BR-8.7 заказ может находиться в статусах `'ожидает'` или `'ошибка'`. Генератор создаёт ровно одну успешную оплату на заказ, а статус `order.pay_status` обновляется триггером `trg_payment_pay_status_change` на таблице `payment`.
 
 **Где хранится тип оплаты — `payment` или `order`** (BR-8.6):
 
-В таблице `payment` (столбец `payment.payment_type`). По BR-8.6 тип оплаты относится к конкретной попытке оплаты, а не к заказу в целом. У одного заказа может быть несколько попыток с разными способами оплаты (в частности, две неуспешные попытки оплатить `'карта'` и последующая успешная оплата `'наличные'` при получении). Хранение `payment_type` в `"order"` противоречит BR-8.6 и не позволяет сохранять разные типы оплаты для разных попыток одного заказа.
+В таблице `payment` (столбец `payment.payment_type`). По BR-8.6 тип оплаты относится к конкретной попытке оплаты, а не к заказу в целом. У одного заказа может быть несколько попыток с разными способами оплаты (например, неуспешная оплата картой и последующая успешная оплата наличными при получении). Хранение `payment_type` в `"order"` противоречит BR-8.6 и не позволяет сохранять разные типы оплаты для разных попыток одного заказа.
 
 ### Ловушка 2: `order.address_id` — принадлежность клиенту (BR-7.4)
 
@@ -82,7 +82,7 @@ CONSTRAINT fk_order_client_address
     ON DELETE RESTRICT
 ```
 
-В таблице `client_address` пара `(client_id, address_id)` является первичным ключом (`pk_client_address`). Обычный внешний ключ `fk_order_address (address_id) → address(address_id)` проверяет лишь то, что адрес существует в справочнике `address`, тогда как составной внешний ключ `fk_order_client_address (client_id, address_id) → client_address(client_id, address_id)` гарантирует, что заказ можно оформить только на адрес, привязанный именно к этому клиенту (BR-7.4), без триггеров и проверок только в коде приложения.
+В таблице `client_address` пара `(client_id, address_id)` является первичным ключом (`pk_client_address`). Обычный внешний ключ `fk_order_address (address_id) → address(address_id)` проверяет лишь существование адреса в справочнике, а составной внешний ключ `fk_order_client_address (client_id, address_id) → client_address(client_id, address_id)` обеспечивает, что заказ оформляется только на адрес данного клиента (BR-7.4), без триггеров и проверок только в коде приложения.
 
 ### Ловушка 3: `order_structure` — один ресторан в заказе (BR-7.3)
 
@@ -102,19 +102,29 @@ CONSTRAINT fk_order_structure_product_restaurant
     REFERENCES trondin_food.product (product_id, restaurant_id)
 ```
 
-Поскольку оба внешних ключа в строке `order_structure` опираются на один и тот же столбец `restaurant_id`, СУБД автоматически гарантирует равенство `order.restaurant_id = order_structure.restaurant_id = product.restaurant_id`. Вставить в заказ блюдо из другого ресторана невозможно на уровне ограничений целостности БД.
+Поскольку оба внешних ключа в строке `order_structure` опираются на один и тот же столбец `restaurant_id`, СУБД обеспечивает равенство `order.restaurant_id = order_structure.restaurant_id = product.restaurant_id`. Вставить в заказ блюдо из другого ресторана невозможно на уровне ограничений целостности БД.
+
+**Контроль непустого состава заказа:** трактуем BR-7.14 (заказ содержит одну или несколько позиций) как требование к схеме по аналогии с BR-11.4. Обычный `CHECK` не видит соседнюю таблицу, а немедленный триггер упал бы при создании заказа до вставки его позиций.
+Решение — единая функция `check_order_has_items()` и два отложенных триггера (`CREATE CONSTRAINT TRIGGER ... DEFERRABLE INITIALLY DEFERRED`):
+1. `trg_order_check_items` на `"order"` (`AFTER INSERT`) — откладывает проверку до `COMMIT`, требуя наличия хотя бы одной позиции;
+2. `trg_order_structure_check_items` на `order_structure` (`AFTER DELETE OR UPDATE OF order_id`) — откладывает проверку до `COMMIT` при удалении или переносе позиций.
+
+При каскадном удалении заказа (`ON DELETE CASCADE`) функция пропускает проверку, если сам заказ уже удален из `"order"`.
+*Нюанс:* при ручной вставке в DBeaver заказ и позиции нужно вставлять в одной транзакции (`BEGIN; ... COMMIT;`), иначе проверка сработает на автокоммите первого оператора.
 
 ### Ловушка 4: `review` — полиморфизм (BR-9.1)
 
 **Как реализована валидность `review.entity_id`:**
 
-Выбран гибридный вариант: полиморфная связь `(entity_type, entity_id)` по контракту `docs/erd.md` + составной FK для проверки автора заказа + триггер для проверки целевой сущности**:
+Выбран гибридный вариант: полиморфная связь `(entity_type, entity_id)` по контракту `docs/erd.md` + составной FK для проверки автора заказа + триггер для проверки целевой сущности:
 1. Почему нет обычного FK на `entity_id`: по `docs/erd.md` и BR-9.1 отзывы на блюдо, ресторан и заказ хранятся в одной таблице `review`, где `entity_id UUID` в зависимости от `entity_type` (`'блюдо'`, `'ресторан'`, `'заказ'`) указывает на PK одной из трех разных таблиц (`product`, `restaurant`, `"order"`). В реляционной модели стандартный `FOREIGN KEY` не может условно ссылаться на разные таблицы по значению соседнего столбца.
-2. **Декларативная защита автора заказа (BR-9.2): в таблице `"order"` создано ограничение `uq_order_id_client UNIQUE (order_id, client_id)`, на которое ссылается составной внешний ключ `fk_review_order_client FOREIGN KEY (order_id, client_id) REFERENCES "order" (order_id, client_id) ON DELETE CASCADE`. Это гарантирует, что отзыв по заказу может оставить только клиент, оформивший этот заказ.
+2. **Защита автора заказа (BR-9.2):** в таблице `"order"` создано ограничение `uq_order_id_client UNIQUE (order_id, client_id)`, на которое ссылается составной внешний ключ `fk_review_order_client FOREIGN KEY (order_id, client_id) REFERENCES "order" (order_id, client_id) ON DELETE CASCADE`. Это обеспечивает, что отзыв по заказу может оставить только клиент, оформивший этот заказ.
 3. Триггерная проверка `entity_id` (BR-9.1, BR-9.2): триггер `trg_review_check_entity` (`BEFORE INSERT OR UPDATE OF order_id, entity_type, entity_id ON review`, функция `check_review_entity()` в `db/schema/05_triggers.sql`) проверяет, что оцениваемая сущность существует и относится к заказу `NEW.order_id`:
    - при `entity_type = 'заказ'` требует `NEW.entity_id = NEW.order_id`;
    - при `entity_type = 'ресторан'` проверяет, что в `"order"` для `NEW.order_id` указан `restaurant_id = NEW.entity_id`;
    - при `entity_type = 'блюдо'` проверяет наличие строки в `order_structure` с `order_id = NEW.order_id` и `product_id = NEW.entity_id`.
+
+   Следствие BR-9.2 (наше решение): триггер `trg_order_structure_check_reviewed_item` (`BEFORE DELETE OR UPDATE OF order_id, product_id ON order_structure`) запрещает удалять позицию или менять её блюдо, если на неё уже оставлен отзыв (изменение `quantity` разрешено). При каскадном удалении заказа проверка пропускается аналогично функции `check_order_has_items`.
 
 ---
 
@@ -124,53 +134,46 @@ CONSTRAINT fk_order_structure_product_restaurant
 
 | Таблица | Столбец | Условие | BR | Обоснование |
 |---|---|---|---|---|
-| `address` | `street` | `chk_address_street`: `street ~ '\S'` | BR-3.1, BR-11.3, BR-11.4 | Улица должна содержать непробельные символы - потому что BR-3.1 и BR-11.3 требуют заполненного названия улицы, а пустая строка `''` или строка из пробелов обходила бы `NOT NULL`. |
-| `address` | `street` | `chk_address_street_trimmed`: `street !~ '^\s\|\s$'` | BR-3.1, BR-3.3, BR-11.6 | Запрет начальных и конечных пробелов в улице - BR-11.6 оставляет технические параметры на наше усмотрение; ограничение введено по нашему решению, так как пробелы по краям обошли бы уникальность физического адреса (BR-3.1, BR-3.3) или дали бы визуальные дубли. |
-| `address` | `house_number` | `chk_address_house_number`: `house_number ~ '\S'` | BR-3.1, BR-11.3, BR-11.4 | Номер дома должен содержать непробельные символы - потому что BR-3.1 и BR-11.3 требуют обязательного указания дома в каждом адресе. |
-| `address` | `house_number` | `chk_address_house_number_trimmed`: `house_number !~ '^\s\|\s$'` | BR-3.1, BR-3.3, BR-11.6 | Запрет начальных и конечных пробелов в номере дома - BR-11.6 оставляет технические параметры на наше усмотрение; ограничение введено по нашему решению, так как пробелы по краям обошли бы уникальность физического адреса (BR-3.1, BR-3.3) или дали бы визуальные дубли. |
-| `address` | `apartment_office` | `chk_address_apartment_office`: `apartment_office ~ '\S'` | BR-3.1, BR-3.2, BR-11.3 | Если квартира/офис указана (не `NULL`), она не может быть пустой или пробельной строкой - потому что по BR-3.2 и BR-11.3 отсутствие квартиры кодируется через `NULL`, а не через `''`. |
-| `address` | `apartment_office` | `chk_address_apartment_office_trimmed`: `apartment_office !~ '^\s\|\s$'` | BR-3.1, BR-3.2, BR-11.6 | Запрет начальных и конечных пробелов в номере квартиры/офиса - BR-11.6 оставляет технические параметры на наше усмотрение; ограничение введено по нашему решению, так как пробелы по краям обошли бы уникальность адреса (BR-3.1, BR-3.2) или дали бы визуальные дубли. |
-| `client` | `login` | `chk_client_login`: `login ~ '\S'` | BR-2.1, BR-2.6, BR-11.3, BR-11.4 | Логин не может быть пустой или пробельной строкой - потому что BR-2.1 и BR-2.6 требуют регистрации и идентификации клиента по логину. |
-| `client` | `login` | `chk_client_login_trimmed`: `login !~ '^\s\|\s$'` | BR-2.2, BR-11.6 | Запрет начальных и конечных пробелов в логине - BR-11.6 оставляет технические параметры на наше усмотрение; ограничение введено по нашему решению, так как пробелы по краям обошли бы уникальность логина (BR-2.2) или дали бы визуальные дубли. |
-| `client` | `password` | `chk_client_password_md5`: `password ~ '^[0-9a-f]{32}$'` | BR-2.1, BR-2.3, BR-11.6 | Пароль должен быть 32-символьной hex-строкой в нижнем регистре - потому что BR-2.3 требует хранить пароль в виде сгенерированного MD5. |
-| `client` | `phone_number` | `chk_client_phone_number`: `phone_number ~ '^7[0-9]{10}$'` | BR-2.1, BR-2.2, BR-2.6, BR-11.6 | Телефон клиента должен состоять из 11 цифр и начинаться с `7` - BR-11.6 оставляет технические параметры на наше усмотрение; единый формат выбран по нашему решению, чтобы телефон нельзя было записать по-разному и обойти уникальность (BR-2.2, BR-2.6). |
-| `courier` | `fio` | `chk_courier_fio`: `fio ~ '\S'` | BR-6.1, BR-11.3, BR-11.4 | ФИО курьера не может быть пустой или пробельной строкой - потому что BR-6.1 и BR-11.3 требуют обязательного наличия ФИО у курьера. |
-| `courier` | `fio` | `chk_courier_fio_trimmed`: `fio !~ '^\s\|\s$'` | BR-6.1, BR-11.6 | Запрет начальных и конечных пробелов в ФИО курьера - BR-11.6 оставляет технические параметры на наше усмотрение; ограничение введено по нашему решению, так как пробелы по краям дали бы визуальные дубли ФИО сотрудника (BR-6.1). |
-| `courier` | `phone_number` | `chk_courier_phone_number`: `phone_number ~ '^7[0-9]{10}$'` | BR-6.1, BR-11.6 | Телефон курьера задается в едином 11-значном формате `7XXXXXXXXXX` - BR-11.6 оставляет технические параметры на наше усмотрение; единый формат выбран по нашему решению для единообразного хранения контактного номера курьера (BR-6.1). |
-| `courier` | `coefficient` | `chk_courier_coefficient`: `coefficient BETWEEN 0.1 AND 0.5` | BR-6.4 | Коэффициент курьера ограничен диапазоном от `0.1` до `0.5` включительно - потому что BR-6.4 прямо задает допустимые границы коэффициента. Особенность типа: `NUMERIC(2,1)` округляет значение до проверки `CHECK`: `0.54` станет `0.5`. |
-| `courier` | `dismissal_date`, `hire_date` | `chk_courier_dismissal_date`: `dismissal_date IS NULL OR dismissal_date >= hire_date` | BR-6.1, BR-6.3 | Дата увольнения не может быть раньше даты найма - потому что BR-6.1 и BR-6.3 требуют непротиворечивых дат работы сотрудника. |
-| `courier` | `status`, `dismissal_date` | `chk_courier_dismissal_status`: `(status = 'уволен' AND dismissal_date IS NOT NULL) OR status <> 'уволен'` | BR-6.2, BR-6.3 | У курьера со статусом `'уволен'` дата увольнения обязательна, а у работающего необязательна - потому что BR-6.3 прямо требует наличия даты увольнения у уволенного сотрудника. |
-| `product_category` | `product_category_name` | `chk_product_category_name`: `product_category_name ~ '\S'` | BR-5.7, BR-11.3, BR-11.4 | Название категории блюд не может быть пустой или пробельной строкой - потому что BR-5.7 и BR-11.3 требуют обязательного названия в справочнике категорий. |
-| `product_category` | `product_category_name` | `chk_product_category_name_trimmed`: `product_category_name !~ '^\s\|\s$'` | BR-5.7, BR-11.6 | Запрет начальных и конечных пробелов в названии категории - BR-11.6 оставляет технические параметры на наше усмотрение; ограничение введено по нашему решению, так как пробелы по краям дали бы визуальные дубли названий в справочнике категорий (BR-5.7). |
-| `restaurant` | `restaurant_name` | `chk_restaurant_name`: `restaurant_name ~ '\S'` | BR-4.1, BR-11.3, BR-11.4 | Название ресторана не может быть пустой или пробельной строкой - потому что BR-4.1 и BR-11.3 требуют обязательного наличия названия у ресторана. |
-| `restaurant` | `restaurant_name` | `chk_restaurant_name_trimmed`: `restaurant_name !~ '^\s\|\s$'` | BR-4.1, BR-11.6 | Запрет начальных и конечных пробелов в названии ресторана - BR-11.6 оставляет технические параметры на наше усмотрение; ограничение введено по нашему решению, так как пробелы по краям дали бы визуальные дубли в витрине и отчете `get_statistic()` (BR-4.1). |
-| `restaurant` | `description` | `chk_restaurant_description`: `description ~ '\S'` | BR-4.1, BR-11.3, BR-11.4 | Описание ресторана не может быть пустой или пробельной строкой - потому что BR-4.1 и BR-11.3 делают описание обязательным атрибутом ресторана. |
-| `restaurant` | `company_details` | `chk_restaurant_company_details`: `company_details ~ '\S'` | BR-4.1, BR-4.5, BR-11.3 | Реквизиты ресторана не могут быть пустой или пробельной строкой - потому что BR-4.1 и BR-4.5 требуют хранения юридической информации (ИНН, ОГРН, расчетный счет). |
-| `restaurant` | `work_start`, `work_end` | `chk_restaurant_schedule`: `work_end > work_start` | BR-4.4 | Время закрытия строго позже времени открытия - потому что BR-4.4 прямо устанавливает это правило для графика работы ресторана. Следствие BR-4.4: ресторан не может работать через полночь (например, с `22:00` до `02:00`) - модель этого не поддерживает. |
-| `restaurant` | `rating` | `chk_restaurant_rating`: `rating BETWEEN 0 AND 5` | BR-4.2 | Рейтинг ресторана ограничен диапазоном от `0` до `5` - потому что BR-4.2 задает границы числового рейтинга ресторана. |
-| `courier_pay` | `month` | `chk_courier_pay_month`: `month BETWEEN 1 AND 12` | BR-10.1, BR-10.2 | Месяц выплаты должен быть числом от `1` до `12` - потому что BR-10.1 и BR-10.2 определяют ежемесячный расчет зарплаты по календарным месяцам года. |
-| `courier_pay` | `amount` | `chk_courier_pay_amount`: `amount >= 0` | BR-10.4 | Сумма выплаты курьеру неотрицательна - потому что BR-10.4 прямо требует, чтобы сумма зарплаты была не меньше нуля. |
-| `courier_pay` | `coefficient_used` | `chk_courier_pay_coefficient_used`: `coefficient_used BETWEEN 0.1 AND 0.5` | BR-6.4, BR-10.2 | Примененный коэффициент выплаты находится в пределах от `0.1` до `0.5` - потому что BR-6.4 и BR-10.2 допускают только значения из этого диапазона. |
-| `product` | `product_name` | `chk_product_name`: `product_name ~ '\S'` | BR-5.2, BR-11.3, BR-11.4 | Название блюда не может быть пустой или пробельной строкой - потому что BR-5.2 и BR-11.3 требуют обязательного названия у каждого блюда. |
-| `product` | `product_name` | `chk_product_name_trimmed`: `product_name !~ '^\s\|\s$'` | BR-5.2, BR-11.6 | Запрет начальных и конечных пробелов в названии блюда - BR-11.6 оставляет технические параметры на наше усмотрение; ограничение введено по нашему решению, так как пробелы по краям дали бы визуальные дубли в меню и отчете `get_statistic()` (BR-5.2). |
-| `product` | `description` | `chk_product_description`: `description ~ '\S'` | BR-5.2, BR-11.3, BR-11.4 | Описание блюда не может быть пустой или пробельной строкой - потому что BR-5.2 и BR-11.3 требуют обязательного описания блюда. |
-| `product` | `photo_url` | `chk_product_photo_url`: `photo_url IS NULL OR photo_url ~ '\S'` | BR-5.2, BR-5.6, BR-11.3 | Ссылка на фото блюда либо `NULL`, либо содержит непробельные символы - потому что по BR-5.6 фотография необязательна, но пустая строка вместо `NULL` недопустима. |
-| `product` | `price` | `chk_product_price`: `price >= 0` | BR-5.3 | Цена блюда неотрицательна (`>= 0`) - потому что BR-5.3 прямо требует неотрицательную цену блюда. |
-| `product` | `rating` | `chk_product_rating`: `rating BETWEEN 0 AND 5` | BR-5.4 | Рейтинг блюда ограничен диапазоном от `0` до `5` - потому что BR-5.4 задает допустимый диапазон рейтинга блюда. |
-| `"order"` | `description` | `chk_order_description`: `description ~ '\S'` | BR-11.3, BR-11.4 | Описание заказа не может быть пустой или пробельной строкой - потому что атрибут `description` из `docs/erd.md` по правилу BR-11.3 обязателен к заполнению. |
-| `"order"` | `order_amount` | `chk_order_order_amount`: `order_amount > 0` | BR-1.8, BR-7.10, BR-7.11 | Сумма стоимости блюд положительна - потому что по BR-7.10 и BR-7.11 общая сумма заказа с учетом 10% комиссии не может быть меньше `1000` ₽. Поле `"order".order_amount` - это снимок суммы на момент заказа, поэтому с текущей суммой позиций в `order_structure` он не сверяется: иначе изменение цены блюда задним числом ломало бы старые заказы. |
-| `"order"` | `commission`, `order_amount` | `chk_order_commission`: `commission = ROUND(order_amount * 0.10, 2)` | BR-1.4, BR-7.10 | Комиссия сервиса строго равна 10% от суммы заказа без комиссии - потому что BR-1.4 и BR-7.10 фиксируют комиссию в размере 10% от стоимости блюд. Осознанное решение: при типе `NUMERIC(10,2)` в PostgreSQL значение приводится к масштабу столбца (округляется до копеек) до проверки `CHECK`. Например, при передаче `order_amount = 909.086`, `commission = 90.909` и `total_amount = 999.995` значения при типе `NUMERIC(10,2)` станут `909.09`, `90.91` и `1000.00` и пройдут `chk_order_commission`, `chk_order_total_amount_sum` и `chk_order_min_total`. |
-| `"order"` | `total_amount`, `order_amount`, `commission` | `chk_order_total_amount_sum`: `total_amount = order_amount + commission` | BR-1.5, BR-7.10 | Общая сумма заказа равна сумме без комиссии плюс комиссия - потому что BR-1.5 и BR-7.10 определяют полную стоимость заказа как `order_amount + commission`. |
-| `"order"` | `total_amount` | `chk_order_min_total`: `total_amount >= 1000` | BR-1.8, BR-7.11 | Общая сумма заказа не менее `1000` ₽ - потому что BR-1.8 и BR-7.11 устанавливают минимальную сумму заказа в 1000 ₽. |
-| `"order"` | `delivery_timestamp`, `order_timestamp` | `chk_order_delivery_timestamp_order`: `delivery_timestamp IS NULL OR delivery_timestamp >= order_timestamp` | BR-7.13 | Время окончания доставки не может быть раньше времени создания заказа - потому что BR-7.13 прямо запрещает такую временную аномалию. |
-| `"order"` | `status`, `delivery_timestamp` | `chk_order_delivery_status_sync`: `(status = 'доставлен' AND delivery_timestamp IS NOT NULL) OR (status <> 'доставлен' AND delivery_timestamp IS NULL)` | BR-7.12, BR-11.3 | Время доставки заполнено тогда и только тогда, когда статус заказа `'доставлен'`. По BR-7.12 при статусе `'доставлен'` время обязано быть заполнено, а до этого момента `NULL` допустим, так как бизнес прямо его разрешает (BR-7.12 в связке с BR-11.3). Обязательность `NULL` до доставки установлена по нашему решению (строже BR-7.12), так как ненулевое время доставки у заказа в статусах `'создан'`, `'готовится'`, `'в_доставке'` или `'отменён'` бессмысленно и противоречит его статусу, а взаимная синхронизация исключает расхождение статуса и даты. |
-| `review` | `description` | `chk_review_description`: `description ~ '\S'` | BR-9.3, BR-11.3, BR-11.4 | Текст отзыва не может быть пустой или пробельной строкой - потому что BR-9.3 и BR-11.3 требуют наличия текста у каждого отзыва. |
-| `review` | `photo_url` | `chk_review_photo_url`: `photo_url IS NULL OR photo_url ~ '\S'` | BR-9.3, BR-11.3 | Ссылка на фотографию в отзыве либо `NULL`, либо содержит непробельные символы - потому что по BR-9.3 фото необязательно, а пустая строка вместо `NULL` не допускается. |
-| `review` | `rating` | `chk_review_rating`: `rating BETWEEN 1 AND 5` | BR-9.4 | Рейтинг отзыва находится в диапазоне от `1` до `5` - потому что BR-9.4 задает шкалу оценки в отзыве от 1 до 5. |
-| `order_structure` | `quantity` | `chk_order_structure_quantity`: `quantity > 0` | BR-7.15 | Количество блюда в позиции заказа строго положительно - потому что BR-7.15 требует положительного (целого или дробного) количества. |
-| `payment` | `amount` | `chk_payment_amount`: `amount >= 1000` | BR-1.8, BR-7.11, BR-8.4 | Сумма попытки оплаты не менее `1000` ₽ - потому что по BR-8.4 сумма оплаты равна общей сумме заказа `order.total_amount`, которая по BR-1.8 и BR-7.11 не менее 1000 ₽. |
-| `payment` | `transaction_id` | `chk_payment_transaction_id`: `transaction_id ~ '\S'` | BR-8.2, BR-8.3, BR-11.3 | Идентификатор транзакции не может быть пустой или пробельной строкой - потому что BR-8.2 и BR-8.3 требуют обязательного внешнего идентификатора транзакции от провайдера. |
-| `payment` | `transaction_id` | `chk_payment_transaction_id_trimmed`: `transaction_id !~ '^\s\|\s$'` | BR-8.3, BR-11.6 | Запрет начальных и конечных пробелов в `transaction_id` - BR-11.6 оставляет технические параметры на наше усмотрение; ограничение введено по нашему решению, так как пробелы по краям обошли бы уникальность идентификатора транзакции (BR-8.3) или дали бы визуальные дубли. |
+| `address` | `street` | `chk_address_street`: `trim(street) <> ''` | BR-3.1, BR-11.6* | Непустая строка (см. сноску). |
+| `address` | `house_number` | `chk_address_house_number`: `trim(house_number) <> ''` | BR-3.1, BR-11.6* | Непустая строка (см. сноску). |
+| `address` | `apartment_office` | `chk_address_apartment_office`: `apartment_office IS NULL OR trim(apartment_office) <> ''` | BR-3.1, BR-3.2, BR-11.6* | Если указана, не может быть пустой строкой (см. сноску). |
+| `client` | `login` | `chk_client_login`: `trim(login) <> ''` | BR-2.1, BR-2.6, BR-11.6* | Непустая строка (см. сноску). |
+| `client` | `password` | `chk_client_password_md5`: `password ~ '^[0-9a-f]{32}$'` | BR-2.3, BR-11.6 | 32-значный hex MD5 в нижнем регистре — BR-2.3 требует MD5, нижний регистр выбран по нашему решению (BR-11.6). |
+| `client` | `phone_number` | `chk_client_phone_number`: `phone_number ~ '^7[0-9]{10}$'` | BR-2.1, BR-2.2, BR-11.6 | Телефон в формате `7XXXXXXXXXX` — наше решение (BR-11.6) для уникальности (BR-2.2). |
+| `courier` | `fio` | `chk_courier_fio`: `trim(fio) <> ''` | BR-6.1, BR-11.6* | Непустая строка (см. сноску). |
+| `courier` | `phone_number` | `chk_courier_phone_number`: `phone_number ~ '^7[0-9]{10}$'` | BR-6.1, BR-11.6 | Телефон в формате `7XXXXXXXXXX` — наше решение (BR-11.6) для единообразия (BR-6.1). |
+| `courier` | `coefficient` | `chk_courier_coefficient`: `coefficient BETWEEN 0.1 AND 0.5` | BR-6.4 | Коэффициент в диапазоне `0.1`–`0.5` по BR-6.4. |
+| `courier` | `dismissal_date`, `hire_date` | `chk_courier_dismissal_date`: `dismissal_date IS NULL OR dismissal_date >= hire_date` | BR-6.1, BR-6.3, BR-11.6 | Дата увольнения не раньше найма — наше решение (BR-6.1, BR-6.3, BR-11.6) для непротиворечивости дат. |
+| `courier` | `status`, `dismissal_date` | `chk_courier_dismissal_status`: `(status = 'уволен' AND dismissal_date IS NOT NULL) OR (status <> 'уволен' AND dismissal_date IS NULL)` | BR-6.2, BR-6.3, BR-11.3, BR-11.6 | У уволенного курьера дата увольнения обязательна (BR-6.3), у работающего отсутствует. Двусторонний CHECK — наша трактовка BR-6.3 и BR-11.3 (наше решение). |
+| `product_category` | `product_category_name` | `chk_product_category_name`: `trim(product_category_name) <> ''` | BR-5.7, BR-11.6* | Непустая строка (см. сноску). |
+| `restaurant` | `restaurant_name` | `chk_restaurant_name`: `trim(restaurant_name) <> ''` | BR-4.1, BR-11.6* | Непустая строка (см. сноску). |
+| `restaurant` | `description` | `chk_restaurant_description`: `trim(description) <> ''` | BR-4.1, BR-11.6* | Непустая строка (см. сноску). |
+| `restaurant` | `company_details` | `chk_restaurant_company_details`: `trim(company_details) <> ''` | BR-4.1, BR-4.5, BR-11.6* | Непустая строка (см. сноску). |
+| `restaurant` | `work_start`, `work_end` | `chk_restaurant_schedule`: `work_end > work_start` | BR-4.4 | Закрытие позже открытия по BR-4.4 (ресторан не работает через полночь). |
+| `restaurant` | `rating` | `chk_restaurant_rating`: `rating BETWEEN 0 AND 5` | BR-4.2 | Рейтинг от `0` до `5` по BR-4.2. |
+| `courier_pay` | `month` | `chk_courier_pay_month`: `month BETWEEN 1 AND 12` | BR-10.1, BR-10.2 | Месяц от `1` до `12` по BR-10.1, BR-10.2. |
+| `courier_pay` | `amount` | `chk_courier_pay_amount`: `amount >= 0` | BR-10.4 | Сумма выплаты курьеру неотрицательна по BR-10.4. |
+| `courier_pay` | `coefficient_used` | `chk_courier_pay_coefficient_used`: `coefficient_used BETWEEN 0.1 AND 0.5` | BR-6.4, BR-10.2 | Коэффициент в диапазоне `0.1`–`0.5` по BR-6.4, BR-10.2. |
+| `product` | `product_name` | `chk_product_name`: `trim(product_name) <> ''` | BR-5.2, BR-11.6* | Непустая строка (см. сноску). |
+| `product` | `description` | `chk_product_description`: `trim(description) <> ''` | BR-5.2, BR-11.6* | Непустая строка (см. сноску). |
+| `product` | `photo_url` | `chk_product_photo_url`: `photo_url IS NULL OR trim(photo_url) <> ''` | BR-5.2, BR-5.6, BR-11.6* | Непустая ссылка на фото, если указана (BR-5.6, см. сноску). |
+| `product` | `price` | `chk_product_price`: `price >= 0` | BR-5.3 | Цена неотрицательна по BR-5.3. |
+| `product` | `rating` | `chk_product_rating`: `rating BETWEEN 0 AND 5` | BR-5.4 | Рейтинг от `0` до `5` по BR-5.4. |
+| `"order"` | `description` | `chk_order_description`: `trim(description) <> ''` | BR-11.3, BR-11.6* | Непустая строка (см. сноску). |
+| `"order"` | `order_amount` | `chk_order_order_amount`: `order_amount > 0` | BR-1.8, BR-7.10, BR-7.11 | Сумма стоимости блюд положительна (BR-7.10, BR-7.11). Исторический снимок суммы, не пересчитывается при смене цен блюд. |
+| `"order"` | `commission`, `order_amount` | `chk_order_commission`: `commission = ROUND(order_amount * 0.10, 2)` | BR-1.4, BR-7.10 | Комиссия равна 10% от стоимости блюд по BR-1.4, BR-7.10. |
+| `"order"` | `total_amount`, `order_amount`, `commission` | `chk_order_total_amount_sum`: `total_amount = order_amount + commission` | BR-1.5, BR-7.10 | Полная сумма по формуле `order_amount + commission` (BR-1.5, BR-7.10). |
+| `"order"` | `total_amount` | `chk_order_min_total`: `total_amount >= 1000` | BR-1.8, BR-7.11 | Минимальная сумма заказа 1000 ₽ по BR-1.8, BR-7.11. |
+| `"order"` | `delivery_timestamp`, `order_timestamp` | `chk_order_delivery_timestamp_order`: `delivery_timestamp IS NULL OR delivery_timestamp >= order_timestamp` | BR-7.13 | Доставка не раньше создания заказа по BR-7.13. |
+| `"order"` | `status`, `delivery_timestamp` | `chk_order_delivery_status_sync`: `(status = 'доставлен' AND delivery_timestamp IS NOT NULL) OR (status <> 'доставлен' AND delivery_timestamp IS NULL)` | BR-7.12, BR-11.3, BR-11.6 | Время доставки заполнено тогда и только тогда, когда статус `'доставлен'`. Заполнение при доставке — по BR-7.12; обязательность NULL до доставки — строже BR-7.12 (наше решение). |
+| `review` | `description` | `chk_review_description`: `trim(description) <> ''` | BR-9.3, BR-11.6* | Непустая строка (см. сноску). |
+| `review` | `photo_url` | `chk_review_photo_url`: `photo_url IS NULL OR trim(photo_url) <> ''` | BR-9.3, BR-11.6* | Непустая ссылка на фото, если указана (BR-9.3, см. сноску). |
+| `review` | `rating` | `chk_review_rating`: `rating BETWEEN 1 AND 5` | BR-9.4 | Оценка от 1 до 5 по BR-9.4. |
+| `order_structure` | `quantity` | `chk_order_structure_quantity`: `quantity > 0` | BR-7.15 | Положительное количество по BR-7.15. |
+| `payment` | `amount` | `chk_payment_amount`: `amount >= 1000` | BR-1.8, BR-7.11, BR-8.4 | Сумма оплаты равна общей сумме заказа (BR-8.4), которая не менее 1000 ₽ (BR-1.8, BR-7.11). |
+| `payment` | `transaction_id` | `chk_payment_transaction_id`: `trim(transaction_id) <> ''` | BR-8.2, BR-8.3, BR-11.6* | Непустая строка (см. сноску). |
+
+\* **Сноска по непустым строкам (наше решение):** пустую строку или строку из одних пробелов приравниваем к отсутствию значения (`trim(...) <> ''`) — наше решение (BR-11.3, BR-11.6), иначе пустая строка обходила бы `NOT NULL`.
 
 ---
 
@@ -178,29 +181,29 @@ CONSTRAINT fk_order_structure_product_restaurant
 
 | Таблица | Столбцы | BR | Обоснование |
 |---|---|---|---|
-| `address` | `address_id` (`pk_address`) | BR-3.1, BR-3.4, BR-11.1 | Суррогатный первичный ключ физического адреса - потому что по BR-11.1 каждая сущность идентифицируется уникальным `UUID`, позволяющим связывать один адрес с несколькими клиентами или рестораном (BR-3.4). |
-| `client` | `client_id` (`pk_client`) | BR-2.1, BR-11.1 | Суррогатный первичный ключ клиента - потому что BR-11.1 требует уникального `UUID`-идентификатора для каждой записи клиента. |
-| `courier` | `courier_id` (`pk_courier`) | BR-6.1, BR-11.1 | Суррогатный первичный ключ курьера - потому что BR-11.1 требует уникального `UUID`-идентификатора сотрудника для привязки заказов и ежемесячных выплат. |
-| `product_category` | `product_category_id` (`pk_product_category`) | BR-5.7, BR-11.1 | Первичный ключ справочника категорий - потому что BR-5.7 и BR-11.1 определяют категорию блюд через уникальный идентификатор `UUID` и название. |
-| `restaurant` | `restaurant_id` (`pk_restaurant`) | BR-4.1, BR-11.1 | Суррогатный первичный ключ ресторана - потому что BR-11.1 требует уникального `UUID`-идентификатора ресторана (названия у разных точек сети могут совпадать). |
-| `product` | `product_id` (`pk_product`) | BR-5.1, BR-5.2, BR-11.1 | Суррогатный первичный ключ блюда - потому что BR-11.1 требует уникального `UUID`-идентификатора для каждой позиции меню. |
-| `"order"` | `order_id` (`pk_order`) | BR-7.1, BR-11.1 | Суррогатный первичный ключ заказа - потому что BR-11.1 требует уникального `UUID`-идентификатора заказа для привязки позиций, платежей и отзывов. |
-| `review` | `review_id` (`pk_review`) | BR-9.1, BR-9.2, BR-11.1 | Суррогатный первичный ключ отзыва - потому что BR-11.1 требует уникального `UUID`-идентификатора для каждого отзыва клиента. |
-| `payment` | `payment_id` (`pk_payment`) | BR-8.1, BR-8.2, BR-11.1 | Суррогатный первичный ключ попытки оплаты - потому что по BR-8.1 у одного заказа может быть несколько попыток оплаты и по BR-11.1 каждая из них имеет собственный `UUID`. |
-| `client` | `login` (`uq_client_login`) | BR-2.2, BR-11.4 | Уникальность логина клиента - потому что BR-2.2 прямо требует, чтобы логин был уникален. Логин чувствителен к регистру: он считается идентификатором как есть, а без учета регистра сравниваются только адреса (`uq_address_location`). |
-| `client` | `phone_number` (`uq_client_phone_number`) | BR-2.2, BR-11.4 | Уникальность телефона клиента - потому что BR-2.2 прямо требует уникальности номера телефона клиента. |
-| `client_address` | `(client_id, address_id)` (`pk_client_address`) | BR-2.5 | Составной первичный ключ таблицы связей - потому что BR-2.5 запрещает привязывать один и тот же адрес к одному клиенту дважды. |
-| `restaurant` | `address_id` (`uq_restaurant_address`) | BR-3.3, BR-3.4 | Уникальность адреса ресторана - потому что BR-3.3 и BR-3.4 запрещают двум разным ресторанам делить один физический адрес. |
-| `courier_pay` | `(year, month, courier_id)` (`pk_courier_pay`) | BR-10.3 | Составной первичный ключ выплаты - потому что BR-10.3 требует, чтобы за один месяц у одного курьера в `courier_pay` была ровно одна запись. |
-| `product` | `(product_id, restaurant_id)` (`uq_product_id_restaurant`) | BR-5.1, BR-7.3 | Технический составной ключ над PK блюда и рестораном - потому что на него ссылается составной внешний ключ `fk_order_structure_product_restaurant` из `order_structure` для проверки принадлежности блюда ресторану заказа (BR-7.3, Ловушка 3). |
-| `"order"` | `(order_id, restaurant_id)` (`uq_order_id_restaurant`) | BR-7.2, BR-7.3 | Технический составной ключ над PK заказа и рестораном - потому что на него ссылается составной внешний ключ `fk_order_structure_order_restaurant` из `order_structure`, гарантирующий, что все позиции заказа относятся к ресторану заказа (BR-7.3, Ловушка 3). |
-| `"order"` | `(order_id, client_id)` (`uq_order_id_client`) | BR-7.2, BR-9.2 | Технический составной ключ над PK заказа и клиентом - потому что на него ссылается составной внешний ключ `fk_review_order_client` из `review`, гарантирующий, что отзыв оставляет автор заказа (BR-9.2, Ловушка 4). |
-| `"order"` | `(order_id, total_amount)` (`uq_order_id_total_amount`) | BR-7.10, BR-8.4 | Технический составной ключ над PK заказа и общей суммой - потому что на него ссылается составной внешний ключ `fk_payment_order_amount` из `payment`, гарантирующий равенство суммы платежа и общей суммы заказа (BR-8.4, Ловушка 1). |
-| `order_structure` | `(order_id, product_id)` (`pk_order_structure`) | BR-7.16 | Составной первичный ключ позиции заказа - потому что BR-7.16 запрещает одному и тому же блюду встречаться в заказе дважды (вместо дублирования увеличивается `quantity`). |
-| `review` | `(order_id, entity_type, entity_id)` (`uq_review_order_entity`) | BR-9.5 | Уникальность объекта отзыва в рамках заказа - потому что BR-9.5 разрешает клиенту в рамках одного заказа оставить не более одного отзыва на каждый объект (блюдо, ресторан или сам заказ). |
-| `payment` | `transaction_id` (`uq_payment_transaction_id`) | BR-8.3, BR-11.4 | Уникальность внешнего идентификатора транзакции - потому что BR-8.3 прямо требует уникальности идентификатора финансовой транзакции от платежного провайдера. |
-| `payment` | `(order_id) WHERE status = 'успех'` (`uq_payment_order_success`, частичный уникальный индекс в `03_indexes.sql`) | BR-8.1 | Частичный уникальный индекс для успешных оплат - потому что BR-8.1 допускает несколько попыток оплаты у заказа, но требует, чтобы успешной была ровно одна. |
-| `address` | `(LOWER(street), LOWER(house_number), LOWER(COALESCE(apartment_office, '')))` (`uq_address_location`, уникальный индекс в `03_indexes.sql`) | BR-3.1, BR-3.2, BR-3.3, BR-3.4 | Уникальность комбинации улицы, дома и квартиры/офиса без учета регистра - потому что BR-3.3 и BR-3.4 предполагают переиспользование одной записи `address` при совпадении физического адреса; без этого индекса один физический адрес можно было бы завести с разными `address_id` и обойти `uq_restaurant_address` и `pk_client_address`. Работа без учета регистра зависит от локали: в локали `C` кириллица в `lower()` не меняется. |
+| `address` | `address_id` (`pk_address`) | BR-3.1, BR-3.4, BR-11.1 | Суррогатный первичный ключ физического адреса — по BR-11.1 каждая сущность идентифицируется UUID, что позволяет связывать адрес с клиентами и рестораном (BR-3.4). |
+| `client` | `client_id` (`pk_client`) | BR-2.1, BR-11.1 | Суррогатный первичный ключ клиента — по BR-11.1. |
+| `courier` | `courier_id` (`pk_courier`) | BR-6.1, BR-11.1 | Суррогатный первичный ключ курьера — по BR-11.1. |
+| `product_category` | `product_category_id` (`pk_product_category`) | BR-5.7, BR-11.1 | Первичный ключ справочника категорий — по BR-5.7, BR-11.1. |
+| `restaurant` | `restaurant_id` (`pk_restaurant`) | BR-4.1, BR-11.1 | Суррогатный первичный ключ ресторана — по BR-11.1. |
+| `product` | `product_id` (`pk_product`) | BR-5.1, BR-5.2, BR-11.1 | Суррогатный первичный ключ блюда — по BR-11.1. |
+| `"order"` | `order_id` (`pk_order`) | BR-7.1, BR-11.1 | Суррогатный первичный ключ заказа — по BR-11.1. |
+| `review` | `review_id` (`pk_review`) | BR-9.1, BR-9.2, BR-11.1 | Суррогатный первичный ключ отзыва — по BR-11.1. |
+| `payment` | `payment_id` (`pk_payment`) | BR-8.1, BR-8.2, BR-11.1 | Суррогатный первичный ключ попытки оплаты — по BR-8.1, BR-11.1. |
+| `client` | `login` (`uq_client_login`) | BR-2.2, BR-11.6 | Уникальность логина клиента по BR-2.2. Логин чувствителен к регистру — наше решение (BR-11.6). |
+| `client` | `phone_number` (`uq_client_phone_number`) | BR-2.2, BR-11.6 | Уникальность номера телефона клиента — по BR-2.2. |
+| `client_address` | `(client_id, address_id)` (`pk_client_address`) | BR-2.5 | Составной первичный ключ связки клиента и адреса — по BR-2.5 запрещено дублирование адреса у клиента. |
+| `restaurant` | `address_id` (`uq_restaurant_address`) | BR-3.3, BR-3.4 | Уникальность адреса ресторана — по BR-3.3 рестораны не делят один адрес. |
+| `courier_pay` | `(year, month, courier_id)` (`pk_courier_pay`) | BR-10.3 | Составной первичный ключ выплаты — по BR-10.3 ровно одна запись на курьера за месяц. |
+| `product` | `(product_id, restaurant_id)` (`uq_product_id_restaurant`) | BR-5.1, BR-7.3 | Технический ключ для составного FK из `order_structure` (BR-7.3, Ловушка 3). |
+| `"order"` | `(order_id, restaurant_id)` (`uq_order_id_restaurant`) | BR-7.2, BR-7.3 | Технический ключ для составного FK из `order_structure`, фиксирующий ресторан заказа (BR-7.3, Ловушка 3). |
+| `"order"` | `(order_id, client_id)` (`uq_order_id_client`) | BR-7.2, BR-9.2 | Технический ключ для составного FK из `review`, подтверждающий автора заказа (BR-9.2, Ловушка 4). |
+| `"order"` | `(order_id, total_amount)` (`uq_order_id_total_amount`) | BR-7.10, BR-8.4 | Технический ключ для составного FK из `payment`, фиксирующий сумму попытки оплаты (BR-8.4, Ловушка 1). |
+| `order_structure` | `(order_id, product_id)` (`pk_order_structure`) | BR-7.16 | Составной первичный ключ позиции заказа — по BR-7.16 запрещены дубли блюд в заказе. |
+| `review` | `(order_id, entity_type, entity_id)` (`uq_review_order_entity`) | BR-9.5 | Уникальность объекта отзыва в заказе — по BR-9.5 не более одного отзыва на объект. |
+| `payment` | `transaction_id` (`uq_payment_transaction_id`) | BR-8.3, BR-11.6 | Уникальность идентификатора транзакции провайдера по BR-8.3. |
+| `payment` | `(order_id) WHERE status = 'успех'` (`uq_payment_order_success`, частичный уникальный индекс в `03_indexes.sql`) | BR-8.1, BR-8.7 | Частичный уникальный индекс: не более одной успешной оплаты на заказ (наша трактовка BR-8.1 с учетом BR-8.7). |
+| `address` | `(LOWER(street), LOWER(house_number), LOWER(COALESCE(apartment_office, '')))` (`uq_address_location`, уникальный индекс в `03_indexes.sql`) | BR-3.1, BR-3.2, BR-3.3, BR-3.4, BR-11.6 | Уникальность адреса без учета регистра — наше решение для исключения дублирования (BR-3.3, BR-3.4, BR-11.6). В локали `C` кириллица в `lower()` не меняется (осознанный риск). |
 
 ---
 
@@ -208,28 +211,28 @@ CONSTRAINT fk_order_structure_product_restaurant
 
 | Таблица | Столбцы | → Таблица | BR | Обоснование |
 |---|---|---|---|---|
-| `client_address` | `client_id` (`fk_client_address_client`) | `client (client_id)` (`ON DELETE CASCADE`) | BR-2.4 | Связь клиента с его адресами доставки — потому что BR-2.4 позволяет клиенту иметь несколько адресов доставки (при удалении клиента удаляется только связка, а сам адрес сохраняется по BR-3.5). |
-| `client_address` | `address_id` (`fk_client_address_address`) | `address (address_id)` (`ON DELETE RESTRICT`) | BR-2.4, BR-3.4, BR-3.5 | Ссылка на физический адрес клиента  потому что BR-2.4 и BR-3.4 связывают клиентов со справочником адресов, а `ON DELETE RESTRICT` запрещает удаление используемого адреса (BR-3.5). |
-| `restaurant` | `address_id` (`fk_restaurant_address`) | `address (address_id)` (`ON DELETE RESTRICT`) | BR-3.3, BR-3.5 | Ссылка на физический адрес ресторана  потому что BR-3.3 требует наличия адреса у ресторана, а BR-3.5 запрещает удалять адреса из БД. |
-| `courier_pay` | `courier_id` (`fk_courier_pay_courier`) | `courier (courier_id)` (`ON DELETE RESTRICT`) | BR-10.1, BR-10.2 | Привязка ежемесячной выплаты к курьеру  потому что BR-10.1 и BR-10.2 требуют начислять зарплату существующему курьеру сервиса. |
-| `product` | `restaurant_id` (`fk_product_restaurant`) | `restaurant (restaurant_id)` (`ON DELETE RESTRICT`) | BR-5.1 | Привязка блюда к ресторану  потому что BR-5.1 требует, чтобы каждое блюдо принадлежало ровно одному ресторану. |
-| `product` | `product_category_id` (`fk_product_category`) | `product_category (product_category_id)` (`ON DELETE RESTRICT`) | BR-5.1, BR-5.7 | Привязка блюда к категории  потому что BR-5.1 требует, чтобы каждое блюдо относилось ровно к одной категории из справочника (BR-5.7). |
-| `"order"` | `courier_id` (`fk_order_courier`) | `courier (courier_id)` (`ON DELETE RESTRICT`) | BR-1.3, BR-7.5 | Привязка заказа к курьеру  потому что по BR-1.3 самовывоза нет и по BR-7.5 доставку каждого заказа выполняет курьер. |
-| `"order"` | `restaurant_id` (`fk_order_restaurant`) | `restaurant (restaurant_id)` (`ON DELETE RESTRICT`) | BR-7.2 | Привязка заказа к ресторану  потому что BR-7.2 требует, чтобы заказ был привязан к одному ресторану. |
-| `"order"` | `client_id` (`fk_order_client`) | `client (client_id)` (`ON DELETE RESTRICT`) | BR-7.1, BR-7.2 | Привязка заказа к клиенту  потому что BR-7.1 и BR-7.2 требуют, чтобы каждый заказ оформлялся конкретным клиентом. |
-| `"order"` | `address_id` (`fk_order_address`) | `address (address_id)` (`ON DELETE RESTRICT`) | BR-1.3, BR-3.5, BR-7.4 | Прямая ссылка заказа на справочник адресов из `docs/erd.md`  потому что по BR-1.3 и BR-7.4 заказ доставляется по физическому адресу, а по BR-3.5 история заказов и адресов сохраняется. |
-| `"order"` | `(client_id, address_id)` (`fk_order_client_address`) | `client_address (client_id, address_id)` (`ON DELETE RESTRICT`) | BR-7.4 | Составной внешний ключ на адрес клиента  потому что BR-7.4 требует, чтобы адрес доставки заказа принадлежал именно тому клиенту, который оформил заказ (Ловушка 2). |
-| `review` | `order_id` (`fk_review_order`) | `"order" (order_id)` (`ON DELETE CASCADE`) | BR-9.2 | Привязка отзыва к заказу из `docs/erd.md`  потому что BR-9.2 требует, чтобы отзыв всегда был связан с конкретным заказом. |
-| `review` | `client_id` (`fk_review_client`) | `client (client_id)` (`ON DELETE RESTRICT`) | BR-9.1, BR-9.2 | Привязка отзыва к клиенту из `docs/erd.md`  потому что по BR-9.1 и BR-9.2 отзыв оставляет клиент сервиса. |
-| `review` | `(order_id, client_id)` (`fk_review_order_client`) | `"order" (order_id, client_id)` (`ON DELETE CASCADE`) | BR-9.2 | Составной внешний ключ на заказ и его клиента  потому что BR-9.2 разрешает оставлять отзыв только автору этого заказа (Ловушка 4). |
-| `order_structure` | `order_id` (`fk_order_structure_order`) | `"order" (order_id)` (`ON DELETE CASCADE`) | BR-7.14 | Привязка позиции к заказу  потому что BR-7.14 определяет состав заказа как набор позиций этого заказа. |
-| `order_structure` | `product_id` (`fk_order_structure_product`) | `product (product_id)` (`ON DELETE RESTRICT`) | BR-7.14 | Привязка позиции заказа к блюду  потому что BR-7.14 определяет позицию заказа как конкретное блюдо и его количество. |
-| `order_structure` | `(order_id, restaurant_id)` (`fk_order_structure_order_restaurant`) | `"order" (order_id, restaurant_id)` | BR-7.3 | Составной внешний ключ позиции на заказ и его ресторан  потому что в паре с `fk_order_structure_product_restaurant` он фиксирует ресторан заказа в строке позиции (BR-7.3, Ловушка 3). |
-| `order_structure` | `(product_id, restaurant_id)` (`fk_order_structure_product_restaurant`) | `product (product_id, restaurant_id)` | BR-7.3 | Составной внешний ключ позиции на блюдо и его ресторан  потому что в паре с `fk_order_structure_order_restaurant` он запрещает включать в заказ блюда из другого ресторана (BR-7.3, Ловушка 3). |
-| `payment` | `order_id` (`fk_payment_order`) | `"order" (order_id)` (`ON DELETE RESTRICT`) | BR-8.1 | Привязка попытки оплаты к заказу  потому что BR-8.1 связывает каждую попытку оплаты с конкретным заказом. |
-| `payment` | `(order_id, amount)` (`fk_payment_order_amount`) | `"order" (order_id, total_amount)` (`ON DELETE RESTRICT ON UPDATE CASCADE`) | BR-8.4 | Составной внешний ключ на заказ и его общую сумму  потому что BR-8.4 требует, чтобы сумма каждой попытки оплаты строго равнялась общей сумме заказа `order.total_amount` (Ловушка 1). `ON UPDATE CASCADE` держит BR-8.4 при правке суммы заказа, но сумма уже успешного платежа изменится вместе с ней. |
+| `client_address` | `client_id` (`fk_client_address_client`) | `client (client_id)` (`ON DELETE CASCADE`) | BR-2.4, BR-3.5 | Связь клиента с адресами доставки (BR-2.4); при удалении клиента удаляется только связка, сам адрес сохраняется (BR-3.5). |
+| `client_address` | `address_id` (`fk_client_address_address`) | `address (address_id)` (`ON DELETE RESTRICT`) | BR-2.4, BR-3.4, BR-3.5 | Ссылка на адрес клиента — связка с адресом (BR-2.4, BR-3.4); RESTRICT — наше решение для сохранения адресов (BR-3.5). |
+| `restaurant` | `address_id` (`fk_restaurant_address`) | `address (address_id)` (`ON DELETE RESTRICT`) | BR-3.3, BR-3.5 | Ссылка на адрес ресторана — по BR-3.3 у ресторана есть адрес; RESTRICT — наше решение для сохранения адресов (BR-3.5). |
+| `courier_pay` | `courier_id` (`fk_courier_pay_courier`) | `courier (courier_id)` (`ON DELETE RESTRICT`) | BR-10.1, BR-10.2 | Привязка выплаты к курьеру — по BR-10.1, BR-10.2 зарплата начисляется существующему курьеру. |
+| `product` | `restaurant_id` (`fk_product_restaurant`) | `restaurant (restaurant_id)` (`ON DELETE RESTRICT`) | BR-5.1 | Привязка блюда к ресторану — по BR-5.1 блюдо принадлежит одному ресторану. |
+| `product` | `product_category_id` (`fk_product_category`) | `product_category (product_category_id)` (`ON DELETE RESTRICT`) | BR-5.1, BR-5.7 | Привязка блюда к категории по BR-5.1, BR-5.7. |
+| `"order"` | `courier_id` (`fk_order_courier`) | `courier (courier_id)` (`ON DELETE RESTRICT`) | BR-1.3, BR-7.5 | Привязка заказа к курьеру — по BR-1.3 и BR-7.5 заказ доставляется курьером. |
+| `"order"` | `restaurant_id` (`fk_order_restaurant`) | `restaurant (restaurant_id)` (`ON DELETE RESTRICT`) | BR-7.2 | Привязка заказа к ресторану — по BR-7.2 заказ относится к одному ресторану. |
+| `"order"` | `client_id` (`fk_order_client`) | `client (client_id)` (`ON DELETE RESTRICT`) | BR-7.1, BR-7.2 | Привязка заказа к клиенту — по BR-7.1 заказ оформляет клиент. |
+| `"order"` | `address_id` (`fk_order_address`) | `address (address_id)` (`ON DELETE RESTRICT`) | BR-1.3, BR-3.5, BR-7.4 | Прямая ссылка заказа на адрес по BR-1.3, BR-7.4; RESTRICT — сохранение истории заказов (BR-3.5). |
+| `"order"` | `(client_id, address_id)` (`fk_order_client_address`) | `client_address (client_id, address_id)` (`ON DELETE RESTRICT`) | BR-7.4 | Составной FK — адрес доставки должен принадлежать клиенту заказа (BR-7.4, Ловушка 2). |
+| `review` | `order_id` (`fk_review_order`) | `"order" (order_id)` (`ON DELETE CASCADE`) | BR-9.2 | Привязка отзыва к заказу по BR-9.2. |
+| `review` | `client_id` (`fk_review_client`) | `client (client_id)` (`ON DELETE RESTRICT`) | BR-9.1, BR-9.2 | Привязка отзыва к клиенту по BR-9.1, BR-9.2. |
+| `review` | `(order_id, client_id)` (`fk_review_order_client`) | `"order" (order_id, client_id)` (`ON DELETE CASCADE`) | BR-9.2 | Составной FK — отзыв может оставить только автор заказа (BR-9.2, Ловушка 4). |
+| `order_structure` | `order_id` (`fk_order_structure_order`) | `"order" (order_id)` (`ON DELETE CASCADE`) | BR-7.14 | Привязка позиции к заказу по BR-7.14. Непустой состав контролируется отложенными триггерами (см. Ловушку 3). |
+| `order_structure` | `product_id` (`fk_order_structure_product`) | `product (product_id)` (`ON DELETE RESTRICT`) | BR-7.14 | Привязка позиции к блюду по BR-7.14. |
+| `order_structure` | `(order_id, restaurant_id)` (`fk_order_structure_order_restaurant`) | `"order" (order_id, restaurant_id)` | BR-7.3 | Составной FK позиции на заказ и ресторан — фиксация ресторана заказа в позиции (BR-7.3, Ловушка 3). |
+| `order_structure` | `(product_id, restaurant_id)` (`fk_order_structure_product_restaurant`) | `product (product_id, restaurant_id)` | BR-7.3 | Составной FK позиции на блюдо и ресторан — запрет блюд из другого ресторана (BR-7.3, Ловушка 3). |
+| `payment` | `order_id` (`fk_payment_order`) | `"order" (order_id)` (`ON DELETE RESTRICT`) | BR-8.1 | Привязка попытки оплаты к заказу по BR-8.1. |
+| `payment` | `(order_id, amount)` (`fk_payment_order_amount`) | `"order" (order_id, total_amount)` (`ON DELETE RESTRICT ON UPDATE CASCADE`) | BR-8.4 | Составной FK на заказ и сумму — по BR-8.4 сумма оплаты равна сумме заказа (Ловушка 1). CASCADE держит равенство при правке суммы заказа. |
 
-**Индексы внешних ключей и полиморфного поиска (`db/schema/03_indexes.sql`, 12 индексов `idx_*`):** PostgreSQL автоматически создает B-tree индексы только для `PRIMARY KEY` и `UNIQUE`, но не индексирует столбцы `FOREIGN KEY`. Поэтому в `03_indexes.sql` явно созданы 12 обычных B-tree индексов (`idx_client_address_address_id`, `idx_courier_pay_courier_id`, `idx_product_category_id`, `idx_product_restaurant_id`, `idx_order_client_id`, `idx_order_address_id`, `idx_order_restaurant_id`, `idx_order_courier_id`, `idx_order_structure_product_id`, `idx_payment_order_id`, `idx_review_client_id`, `idx_review_entity`): они ускоряют соединения (`JOIN`) по внешним ключам, проверки ссылочной целостности при удалении/обновлении родительских строк (`ON DELETE RESTRICT` / `CASCADE`) и работу триггеров пересчета (`idx_review_entity` для `rating_change()`, `idx_payment_order_id` для `payment_pay_status_change()`). При этом согласно BR-11.8 наличие индексов не заменяет корректную логику запросов без лишних сканирований и оконных функций в `get_statistic()`.
+**Индексы внешних ключей и полиморфного поиска (`db/schema/03_indexes.sql`, 12 индексов `idx_*`):** PostgreSQL автоматически создает B-tree индексы для `PRIMARY KEY` и `UNIQUE`, но не индексирует столбцы `FOREIGN KEY`. В `03_indexes.sql` созданы 12 B-tree индексов (`idx_client_address_address_id`, `idx_courier_pay_courier_id`, `idx_product_category_id`, `idx_product_restaurant_id`, `idx_order_client_id`, `idx_order_address_id`, `idx_order_restaurant_id`, `idx_order_courier_id`, `idx_order_structure_product_id`, `idx_payment_order_id`, `idx_review_client_id`, `idx_review_entity`): они ускоряют `JOIN` по внешним ключам и каскадные проверки целостности.
 
 ---
 
@@ -244,11 +247,11 @@ CONSTRAINT fk_order_structure_product_restaurant
 
 | Таблица | Столбец | BR | Обоснование |
 |---|---|---|---|
-| `"order"` | `courier_id` | BR-1.3, BR-7.5, BR-11.3 | Курьер в заказе обязателен (`NOT NULL`) - потому что по BR-1.3 самовывоза в бизнесе нет, по BR-7.5 каждый заказ доставляется курьером, а BR-11.3 не допускает `NULL` для курьера в заказе. |
-| `"order"` | `address_id` | BR-1.3, BR-7.4, BR-11.3 | Адрес доставки в заказе обязателен (`NOT NULL`) - потому что по BR-1.3 заказы доставляются только курьером по адресу клиента (BR-7.4), заказов без адреса доставки не существует. |
-| `order_structure` | `restaurant_id` | BR-7.3, BR-11.3 | Ресторан в позиции заказа обязателен (`NOT NULL`) - потому что при `NULL` в `restaurant_id` составные внешние ключи `fk_order_structure_order_restaurant` и `fk_order_structure_product_restaurant` (в стандартном режиме `MATCH SIMPLE`) не проверяли бы совпадение ресторана и позволили бы обойти правило BR-7.3. |
-| `payment` | `payment_type`, `amount`, `transaction_id`, `payment_timestamp`, `status` | BR-8.2, BR-8.3, BR-8.4, BR-8.6, BR-11.3 | Все атрибуты попытки оплаты, добавленные сверх `docs/erd.md` (Ловушка 1), обязательны (`NOT NULL`) - потому что BR-8.2 и BR-11.3 требуют фиксировать способ, сумму, внешний идентификатор транзакции провайдера, время и статус для каждой попытки оплаты без исключений. |
-| `restaurant`, `product`, `"order"`, `review` | `description`, `company_details` | BR-4.1, BR-4.5, BR-5.2, BR-9.3, BR-11.3 | Описания ресторана, блюда, заказа, текст отзыва и реквизиты ресторана сделаны `NOT NULL` - потому что BR-11.3 разрешает `NULL` только для прямо перечисленных в правилах необязательных полей (`apartment_office`, `photo_url`, `dismissal_date`, `delivery_timestamp`, `rating` без отзывов), а все остальные атрибуты требует делать обязательными на уровне схемы (BR-11.4). |
+| `"order"` | `courier_id` | BR-1.3, BR-7.5 | Курьер обязателен — по BR-1.3 и BR-7.5 каждый заказ доставляется курьером, самовывоза нет. |
+| `"order"` | `address_id` | BR-1.3, BR-7.4 | Адрес доставки обязателен — по BR-1.3 и BR-7.4 заказы доставляются только по адресу клиента. |
+| `order_structure` | `restaurant_id` | BR-7.3 | Ресторан позиции обязателен — необходим для составных FK Ловушки 3 (BR-7.3); при `NULL` составные FK пропускали бы проверку. |
+| `payment` | `payment_type`, `amount`, `transaction_id`, `payment_timestamp`, `status` | BR-8.2, BR-8.3, BR-8.6 | Все атрибуты попытки оплаты (способ, сумма, идентификатор транзакции, время, статус) обязательны по BR-8.2, BR-8.3, BR-8.6. |
+| `restaurant`, `product`, `"order"`, `review` | `description`, `company_details` | BR-4.1, BR-4.5, BR-5.2, BR-9.3, BR-11.3 | Описания, реквизиты и текст отзыва обязательны — по BR-11.3 всё, кроме разрешённых исключений, обязательно. |
 
 ---
 
@@ -256,15 +259,15 @@ CONSTRAINT fk_order_structure_product_restaurant
 
 | Таблица | Столбец | BR | Почему NULL |
 |---|---|---|---|
-| `address` | `apartment_office` | BR-3.2, BR-11.3 | Квартира или офис необязательны - потому что BR-3.2 и BR-11.3 прямо указывают, что у частных домов и отдельных входов номер квартиры/офиса отсутствует. |
-| `courier` | `dismissal_date` | BR-6.3, BR-11.3 | У работающего курьера дата увольнения отсутствует - потому что BR-6.3 и BR-11.3 прямо разрешают `NULL` для неуволенных курьеров (при этом для статуса `'уволен'` ограничение `chk_courier_dismissal_status` обязывает заполнить дату). |
-| `restaurant` | `rating` | BR-4.2, BR-9.6, BR-9.7 | При отсутствии отзывов на ресторан агрегированный рейтинг обязан быть `NULL` - потому что BR-9.7 прямо требует устанавливать `rating = NULL`, когда отзывов нет (значение `0` означало бы минимальную оценку, а не отсутствие отзывов). |
-| `product` | `photo_url` | BR-5.6, BR-11.3 | Ссылка на фотографию блюда необязательна - потому что BR-5.6 и BR-11.3 прямо допускают отсутствие фотографии у блюда. |
-| `product` | `rating` | BR-5.4, BR-9.6, BR-9.7 | При отсутствии отзывов на блюдо его агрегированный рейтинг обязан быть `NULL` - потому что BR-9.7 прямо требует `rating = NULL`, если отзывов на сущность нет. |
-| `"order"` | `delivery_timestamp` | BR-7.12, BR-11.3 | Время окончания доставки пустое до завершения доставки - потому что BR-7.12 и BR-11.3 требуют заполнять `delivery_timestamp` только тогда, когда заказ получает статус `'доставлен'`. |
-| `review` | `photo_url` | BR-9.3, BR-11.3 | Фотография в отзыве необязательна - потому что BR-9.3 и BR-11.3 разрешают оставлять отзывы без прикрепленного фото. |
-| `get_statistic()` (результат функции) | `best_product_name`, `best_user` | FOOD-106, BR-7.14, BR-13.2 | Запрос строится `FROM restaurant` с тремя `LEFT JOIN` к агрегатам доставленных заказов (`status = 'доставлен'`). Если у ресторана нет доставленных заказов, числовые агрегаты `total_amount` и `avg_amount` приводятся к `0` через `COALESCE`, а `best_product_name` и `best_user` остаются `NULL`. Кроме того, если у ресторана есть доставленные заказы, но в `order_structure` для них еще нет позиций (поскольку заказ в схеме создается до наполнения позициями, BR-7.14), `total_amount`, `avg_amount` и `best_user` будут заполнены, а `best_product_name` корректно вернет `NULL`. |
-| `how_much_money` (результат представления) | `prev_commission`, `commission_diff` | FOOD-108, BR-11.9 | У первого месяца в выборке нет предшествующего месяца, поэтому сравнивать `commission` не с чем (`LAG` возвращает `NULL`). Замена на `0` исказила бы смысл отчета: ноль означал бы, что в предыдущем месяце комиссия равнялась нулю, а `commission_diff` показал бы искусственный прирост на всю сумму комиссии первого месяца. |
+| `address` | `apartment_office` | BR-3.2, BR-11.3 | Квартира или офис необязательны — по BR-3.2 и BR-11.3 у частных домов номера квартиры нет. |
+| `courier` | `dismissal_date` | BR-6.3, BR-11.3, BR-11.6 | У работающего курьера дата отсутствует. Двусторонний CHECK — наша трактовка BR-6.3 и BR-11.3 (наше решение). |
+| `restaurant` | `rating` | BR-4.2, BR-9.6, BR-9.7 | При отсутствии отзывов рейтинг NULL по BR-9.7. |
+| `product` | `photo_url` | BR-5.6, BR-11.3 | Фотография блюда необязательна по BR-5.6, BR-11.3. |
+| `product` | `rating` | BR-5.4, BR-9.6, BR-9.7 | При отсутствии отзывов рейтинг NULL по BR-9.7. |
+| `"order"` | `delivery_timestamp` | BR-7.12, BR-11.3, BR-11.6 | Время доставки пустое до завершения доставки. Обязательность NULL до доставки — строже BR-7.12 (наше решение). |
+| `review` | `photo_url` | BR-9.3, BR-11.3 | Фотография в отзыве необязательна по BR-9.3, BR-11.3. |
+| `get_statistic()` (результат функции) | `best_product_name`, `best_user` | FOOD-106, BR-13.2 | У ресторанов без доставок `best_product_name` и `best_user` равны `NULL` (FOOD-106, BR-13.2). При наличии доставок `best_product_name` не `NULL` благодаря контролю непустого состава (см. Ловушку 3). |
+| `how_much_money` (результат представления) | `prev_commission`, `commission_diff` | FOOD-108, BR-11.9 | У первого месяца в выборке нет предшествующего месяца, поэтому `prev_commission` и `commission_diff` равны `NULL` (BR-11.9). |
 
 ---
 
@@ -272,46 +275,43 @@ CONSTRAINT fk_order_structure_product_restaurant
 
 | Таблица | Столбец | Что | Обоснование |
 |---|---|---|---|
-| `address`, `client`, `courier`, `product_category`, `restaurant`, `product`, `"order"`, `review`, `payment` | `*_id` (`pk_address`, `pk_client`, `pk_courier`, `pk_product_category`, `pk_restaurant`, `pk_product`, `pk_order`, `pk_review`, `pk_payment`) | `DEFAULT exts.uuid_generate_v4()` | По BR-11.1 и BR-13.3 все идентификаторы сущностей имеют тип `UUID` и автоматически генерируются на сервере через `exts.uuid_generate_v4()`, что позволяет выполнять `INSERT` без явной передачи PK (в том числе в `add_product` по FOOD-104). |
-| `courier` | `coefficient` | `DEFAULT 0.1` | По BR-6.5 изначальный коэффициент нового курьера равен `0.1`. |
-| `courier` | `status` | `DEFAULT 'свободен'` | По BR-6.2 и BR-6.6 новый курьер при найме по умолчанию получает рабочий статус `'свободен'`. |
-| `courier` | `hire_date` | `DEFAULT CURRENT_DATE` | По BR-6.1 и BR-11.2 при добавлении сотрудника без явного указания даты найма подставляется текущая дата сервера. |
-| `restaurant` | `status` | `DEFAULT 'активен'` | По BR-4.3 новый ресторан по умолчанию создается в рабочем статусе `'активен'`. |
-| `product` | `status` | `DEFAULT 'доступно'` | По BR-5.5 и FOOD-104 новое блюдо по умолчанию добавляется в меню со статусом `'доступно'`. |
-| `"order"` | `order_timestamp` | `DEFAULT LOCALTIMESTAMP` | По BR-7.1 и BR-11.2 время создания заказа по умолчанию фиксируется в часовом поясе сервера. |
-| `"order"` | `status` | `DEFAULT 'создан'` | По BR-7.7 новый заказ начинает жизненный цикл со статуса `'создан'`. |
-| `"order"` | `pay_status` | `DEFAULT 'ожидает'` | По BR-7.9 и BR-8.7 до получения результата попыток оплаты заказ создается в статусе оплаты `'ожидает'`. |
-| `review` | `review_timestamp` | `DEFAULT LOCALTIMESTAMP` | По BR-9.3 и BR-11.2 время создания отзыва по умолчанию фиксируется по часовому поясу сервера. |
-| `payment` | `payment_timestamp` | `DEFAULT LOCALTIMESTAMP` | По BR-8.2 и BR-11.2 время транзакции по умолчанию фиксируется по часовому поясу сервера. |
-| `payment` | `status` | `DEFAULT 'в_обработке'` | По BR-8.2 и BR-8.7 новая попытка оплаты по умолчанию создается в статусе `'в_обработке'`. |
-| `"order"` | `commission`, `total_amount` | Обычные столбцы `NUMERIC(10,2) NOT NULL` с `CHECK` (`chk_order_commission`, `chk_order_total_amount_sum`), **не** `GENERATED ALWAYS AS` | `docs/erd.md` и BR-7.10 задают поля `commission` и `total_amount`, но не говорят, вычисляемые это столбцы или обычные, поэтому подходят оба варианта (`GENERATED ALWAYS AS` и обычные столбцы с `CHECK`). Выбраны обычные столбцы с ограничениями `chk_order_commission` (`commission = ROUND(order_amount * 0.10, 2)`) и `chk_order_total_amount_sum` (`total_amount = order_amount + commission`, BR-1.4, BR-1.5, BR-7.10): значения считает тот, кто создает заказ, а `CHECK` не даст записать неверные; кроме того, при возможном изменении ставки комиссии в будущем обычные столбцы сохраняют исторические финансовые снимки старых заказов неизменными (в отличие от `GENERATED`, где смена выражения пересчитывает таблицу задним числом). |
+| `address`, `client`, `courier`, `product_category`, `restaurant`, `product`, `"order"`, `review`, `payment` | `*_id` | `DEFAULT exts.uuid_generate_v4()` | Генерация UUID на сервере по BR-11.1, BR-13.3. |
+| `courier` | `coefficient` | `DEFAULT 0.1` | Начальный коэффициент нового курьера по BR-6.5. |
+| `courier` | `status` | `DEFAULT 'свободен'` | Начальный статус нового курьера — наше решение (BR-6.2, BR-6.6, BR-11.6). |
+| `courier` | `hire_date` | `DEFAULT CURRENT_DATE` | Текущая дата найма — наше решение (BR-6.1, BR-11.2, BR-11.6). |
+| `restaurant` | `status` | `DEFAULT 'активен'` | Начальный статус ресторана — наше решение (BR-4.3, BR-11.6). |
+| `product` | `status` | `DEFAULT 'доступно'` | Начальный статус блюда — наше решение (BR-5.5, BR-11.6). |
+| `"order"` | `order_timestamp` | `DEFAULT LOCALTIMESTAMP` | Время создания заказа — наше решение (BR-7.1, BR-11.2, BR-11.6). |
+| `"order"` | `status` | `DEFAULT 'создан'` | Начальный статус заказа — наше решение (BR-7.7, BR-11.6). |
+| `"order"` | `pay_status` | `DEFAULT 'ожидает'` | Начальный статус оплаты — наше решение (BR-7.9, BR-8.7, BR-11.6). |
+| `review` | `review_timestamp` | `DEFAULT LOCALTIMESTAMP` | Время создания отзыва — наше решение (BR-9.3, BR-11.2, BR-11.6). |
+| `payment` | `payment_timestamp` | `DEFAULT LOCALTIMESTAMP` | Время транзакции — наше решение (BR-8.2, BR-11.2, BR-11.6). |
+| `payment` | `status` | `DEFAULT 'в_обработке'` | Начальный статус попытки оплаты — наше решение (BR-8.2, BR-8.7, BR-11.6). |
+| `"order"` | `commission`, `total_amount` | Обычные столбцы `NUMERIC(10,2) NOT NULL` с `CHECK` (`chk_order_commission`, `chk_order_total_amount_sum`), **не** `GENERATED ALWAYS AS` | Обычные столбцы с ограничениями `chk_order_commission` и `chk_order_total_amount_sum`: бэкенд и генератор передают вычисленные суммы при `INSERT` напрямую по контракту ERD (столбцы `GENERATED ALWAYS` запретили бы прямую передачу значений), а `CHECK` проверяет корректность формул (BR-1.4, BR-1.5, BR-7.10). |
 
 ---
 
 ## Нормализация (3НФ)
 
-Короткое обоснование, что таблицы приведены к 3НФ, кроме трех осознанных отступлений, перечисленных в п. 2:
+Короткое обоснование, что таблицы приведены к 3НФ, кроме пяти осознанных отступлений, перечисленных в п. 2:
 
 1. **Соответствие 1НФ, 2НФ и 3НФ:**
-   - **1НФ:** во всех 12 таблицах схемы `trondin_food` все атрибуты атомарны (нет массивов, списков или составных значений в одной ячейке). Связи «многие-ко-многим» вынесены в отдельные таблицы связей `client_address` (клиенты - адреса, BR-2.4) и `order_structure` (заказы - блюда, BR-7.14).
-   - **2НФ:** в 9 таблицах с простым первичным ключом (`address`, `client`, `courier`, `product_category`, `restaurant`, `product`, `"order"`, `review`, `payment`) частичная зависимость от PK невозможна по определению. В таблицах с составным первичным ключом неключевые атрибуты зависят от **полного** ключа (в 2 из 3 таблиц строго, с одним исключением в `order_structure`):
-     - в `client_address (client_id, address_id)` неключевых столбцов нет;
-     - в `courier_pay (year, month, courier_id)` сумма выплаты `amount` и действовавший коэффициент `coefficient_used` определяются только полной тройкой `(year, month, courier_id)` (BR-10.2, BR-10.3);
-     - в `order_structure (order_id, product_id)` количество `quantity` зависит от пары `(order_id, product_id)` (BR-7.14, BR-7.16); атрибут `restaurant_id` является исключением (частичная зависимость от `order_id`, отступление от 2НФ ради Ловушки 3, см. п. 2).
-   - **3НФ:** неключевые атрибуты зависят непосредственно от первичного ключа и не имеют транзитивных зависимостей через другие неключевые атрибуты (категории блюд вынесены в `product_category`, физические адреса - в `address`, профили клиентов, ресторанов и курьеров - в собственные таблицы), кроме осознанных отступлений в `review.client_id` (`review_id → order_id → client_id`) и `"order".commission`, `"order".total_amount` (`order_id → order_amount → commission → total_amount`), см. п. 2.
+   - **1НФ:** во всех 12 таблицах схемы `trondin_food` атрибуты атомарны. Связи «многие-ко-многим» вынесены в отдельные таблицы `client_address` (клиенты — адреса, BR-2.4) и `order_structure` (заказы — блюда, BR-7.14).
+   - **2НФ:** в 9 таблицах с простым PK частичная зависимость невозможна по определению. В таблицах с составным PK неключевые атрибуты зависят от полного ключа (`courier_pay (year, month, courier_id)`, `client_address` без неключевых полей, `order_structure (order_id, product_id)` с отступлением по `restaurant_id`, см. п. 2).
+   - **3НФ:** неключевые атрибуты зависят напрямую от первичного ключа и не зависят от других неключевых полей (справочники вынесены в `product_category`, адреса — в `address`), кроме пяти осознанных отступлений и денормализаций (производные суммы заказа, хранимые рейтинги, статус оплаты, избыточный `client_id` в отзывах, а также отступление от 2НФ в `order_structure.restaurant_id` — см. п. 2).
 
 2. **Особые случаи, отступления от нормальных форм и контролируемая денормализация:**
-   - **`"order".order_amount`, `"order".commission` (`10%` от `order_amount`) и `"order".total_amount` (`order_amount + commission`) (BR-1.4, BR-1.5, BR-7.10):** функциональная зависимость между стоимостью и суммами (`order_id → order_amount → commission → total_amount`) формально представляет собой транзитивную зависимость между неключевыми атрибутами и отступление от 3НФ. Поле `"order".order_amount` фиксирует исторический снимок стоимости блюд на момент оформления заказа и не сверяется с суммой позиций в `order_structure` по текущим ценам `product.price` (иначе изменение цены блюда в меню задним числом ломало бы старые заказы). Поля `commission` и `total_amount` заданы контрактом `docs/erd.md`, используются в аналитических запросах (`get_statistic()`, `courier_salary()`, `how_much_money`) и участвуют в составном внешнем ключе `fk_payment_order_amount` для проверки суммы платежа (BR-8.4). Чтобы исключить любую аномалию рассинхронизации при вставке или обновлении при таком отступлении от 3НФ, формулы жестко защищены ограничениями `chk_order_commission (commission = ROUND(order_amount * 0.10, 2))` и `chk_order_total_amount_sum (total_amount = order_amount + commission)`.
-   - **`product.rating` и `restaurant.rating` (BR-4.2, BR-5.4, BR-9.6, BR-9.7):** хранимые агрегаты (`ROUND(AVG(review.rating), 2)`), предусмотренные контрактом `docs/erd.md`. Это осознанная денормализация для скорости чтения меню и каталога ресторанов без постоянного пересчета `AVG` по таблице `review`. Строгая консистентность с отзывами при любых `INSERT`, `UPDATE` и `DELETE` (включая установку `NULL` при удалении последнего отзыва) поддерживается триггером `trg_review_rating_change` (`rating_change()`, FOOD-105).
-   - **`"order".pay_status` (BR-7.8, BR-7.9, BR-8.7):** агрегированный статус оплаты заказа из `docs/erd.md`, вычисляемый по статусам попыток оплаты в `payment`. Автоматически синхронизируется триггером `trg_payment_pay_status_change` (`payment_pay_status_change()`) при каждом изменении в таблице `payment`.
-   - **`order_structure.restaurant_id` (BR-7.3):** добавлен сверх `docs/erd.md` ради решения Ловушки 3. Атрибут зависит только от `order_id`, что представляет собой частичную зависимость от составного первичного ключа `(order_id, product_id)` (отступление от 2НФ). Он оставлен ради двух составных внешних ключей `fk_order_structure_order_restaurant` и `fk_order_structure_product_restaurant` из BR-7.3 (Ловушка 3); аномалии обновления исключены, так как оба FK декларативно требуют совпадения `restaurant_id` с рестораном заказа и рестораном блюда.
-   - **`review.client_id` (BR-9.2):** определяется через `order_id`, то есть это транзитивная зависимость (`review_id → order_id → client_id`) и отступление от 3НФ. Оставлен по контракту `docs/erd.md` и для составного внешнего ключа `fk_review_order_client (order_id, client_id)` из BR-9.2 (Ловушка 4).
-   - **`review.entity_type` и `review.entity_id` (BR-9.1, BR-9.2):** полиморфная ссылка на оцениваемый объект (`'блюдо'`, `'ресторан'` или `'заказ'`). Оба атрибута функционально зависят только от `review_id` и не создают транзитивных зависимостей внутри `review` (3НФ не нарушена), а ссылочная целостность и принадлежность сущности заказу контролируются триггером `trg_review_check_entity` (Ловушка 4).
+   - **`"order".order_amount`, `"order".commission` (`10%` от `order_amount`) и `"order".total_amount` (`order_amount + commission`) (BR-1.4, BR-1.5, BR-7.10):** транзитивная зависимость между неключевыми атрибутами (`order_id → order_amount → commission → total_amount`) — отступление от 3НФ. Поле `order_amount` фиксирует исторический снимок стоимости блюд на момент заказа. Поля `commission` и `total_amount` заданы ERD, используются в отчетах и составном FK `fk_payment_order_amount` (BR-8.4). Согласованность формул обеспечивают ограничения `chk_order_commission` и `chk_order_total_amount_sum` (выбор CHECK вместо GENERATED обоснован в разделе «DEFAULT и GENERATED»).
+   - **`product.rating` и `restaurant.rating` (BR-4.2, BR-5.4, BR-9.6, BR-9.7):** хранимые агрегаты (`ROUND(AVG(review.rating), 2)`) по контракту ERD. Денормализация для быстрого чтения каталога без постоянного пересчета `AVG`. Согласованность с отзывами поддерживает триггер `rating_change` (FOOD-105).
+   - **`"order".pay_status` (BR-7.8, BR-7.9, BR-8.7):** статус оплаты заказа из ERD, синхронизируется триггером `payment_pay_status_change()` по событиям в `payment`.
+   - **`order_structure.restaurant_id` (BR-7.3):** частичная зависимость от `order_id` (отступление от 2НФ ради Ловушки 3). Оставлен ради двух составных внешних ключей, исключающих блюда из чужого ресторана.
+   - **`review.client_id` (BR-9.2):** транзитивная зависимость (`review_id → order_id → client_id`) по контракту ERD; используется в составном FK `fk_review_order_client` (Ловушка 4).
+   - **`review.entity_type` и `review.entity_id` (BR-9.1, BR-9.2):** полиморфная ссылка на объект отзыва. Зависят только от PK `review_id` (3НФ не нарушена), а ссылочная целостность контролируется триггерами (Ловушка 4).
 
 3. **Технические решения по именованию и типам данных (BR-11.6, BR-13.1, BR-13.3):**
-   - **Таблица `"order"` (BR-13.1):** сохранено исходное имя из `docs/erd.md` и `db/tests.md` с экранированием двойными кавычками (`trondin_food."order"`), чтобы проверочные запросы аудитора выполнялись без изменения имен таблиц.
+   - **Таблица `"order"` (BR-13.1):** имя сохранено по ERD с экранированием (`trondin_food."order"`), чтобы проверочные запросы из тестов выполнялись без изменения имен таблиц.
    - **Схема `exts` (BR-13.3):** не пересоздается в `00_init.sql`, а используется для вызовов `exts.uuid_generate_v4()`.
-   - **Типы и размерности столбцов (BR-11.6):** `CHAR(32)` для MD5-пароля (BR-2.3); `CHAR(11)` для номеров телефонов `7XXXXXXXXXX`; `NUMERIC(10,2)` для всех денежных сумм; `NUMERIC(8,3)` для количества `order_structure.quantity` с поддержкой весовых/дробных позиций (BR-7.15); `NUMERIC(2,1)` для коэффициентов курьеров `0.1`–`0.5` (BR-6.4); `NUMERIC(3,2)` для агрегированных рейтингов `0.00`–`5.00` и `SMALLINT` для оценки в отзыве `1`–`5` (BR-9.4).
+   - **Типы и размерности столбцов (BR-11.6):** `CHAR(32)` для MD5-пароля (BR-2.3); `CHAR(11)` для номеров телефонов `7XXXXXXXXXX`; `NUMERIC(10,2)` для денежных сумм; `NUMERIC(8,3)` для количества `order_structure.quantity` (BR-7.15); `NUMERIC(2,1)` для коэффициентов курьеров `0.1`–`0.5` (BR-6.4); `NUMERIC(3,2)` для рейтингов `0.00`–`5.00` и `SMALLINT` для оценки в отзыве `1`–`5` (BR-9.4).
 
 ---
 
@@ -319,72 +319,47 @@ CONSTRAINT fk_order_structure_product_restaurant
 
 ### `insert_test_data()` и `erase_test_data()` (FOOD-102, 103)
 
-- **Повторный вызов дополняет данные:** `insert_test_data(value)` не очищает таблицы, а дописывает новую порцию строк к существующим. Проверочный тест C.9 в `db/tests.md` (первый вызов в C.2 и еще 10 вызовов `CALL insert_test_data(10)` в цикле) дает по `550` строк в таблицах с пропорцией `5 × value` (`address`, `"order"`, `payment`, `product`, `review`) и по `110` строк в таблицах с пропорцией `1 × value` (`client`, `courier`, `product_category`, `restaurant`), а полная очистка выполняется отдельной процедурой `erase_test_data()`.
-- **Почему нет конфликтов уникальности при повторных вызовах:**
-  - телефоны клиентов и курьеров продолжают нумерацию дальше `MAX(phone_number)` (`COALESCE(MAX(phone_number)::bigint, 70000000000) + rn`);
-  - логины клиентов содержат `UUID` (`'user_' || replace(client_id::text, '-', '')`), а `transaction_id` в `payment` - `UUID` платежа (`'txn_' || payment_id`);
-  - в название улицы входит `UUID` адреса (`'ул. Шарикоподшипниковская, ' || address_id`), поэтому функциональный индекс `uq_address_location` не срабатывает на дубликат, а каждый новый ресторан получает собственный новый `address_id` (`uq_restaurant_address`);
-  - выплаты в `courier_pay` создаются только для новых курьеров текущего вызова (`unnest(v_courier_ids)`), поэтому составной ключ `pk_courier_pay (year, month, courier_id)` не конфликтует с предыдущими вызовами.
-- **Названия повторяются между вызовами:** `'Ресторан ' || rn`, `'Блюдо ' || rn`, `'Категория ' || rn` и `'Курьер ' || rn` в каждом вызове нумеруются заново с `1`. Уникальность названий бизнес-правилами не требуется - сущности идентифицируются по `UUID` (см. также решение про рестораны с одинаковым названием в подразделе `get_statistic()`).
-- **Период данных (BR-10.7):** заказы, оплаты, отзывы и расчетная сетка `courier_pay` генерируются за текущий и 5 предыдущих календарных месяцев (`date_trunc('month', LOCALTIMESTAMP) - INTERVAL '5 months' .. LOCALTIMESTAMP`).
-- **Оплаты (BR-8.1, BR-8.7, BR-11.7):** у каждого заказа создается ровно одна успешная попытка оплаты (`status = 'успех'`), поэтому попытки со статусом `'ошибка'` или `'в_обработке'` генератор не создает. Этого достаточно для соблюдения BR-8.1 и точного количества строк `5 × value` из BR-11.7, а сценарии переходов `order.pay_status` при ошибках оплаты (BR-8.7) проверяются вручную.
-- **`erase_test_data()`:** выполняет `TRUNCATE TABLE` всех 12 таблиц схемы `trondin_food` без `RESTART IDENTITY`, поскольку последовательностей (`SEQUENCE` / `SERIAL` / `IDENTITY`) в схеме нет - все первичные ключи имеют тип `UUID` (BR-11.1).
+- **Повторный вызов дополняет данные (C.9):** `insert_test_data(value)` не очищает таблицы, а дописывает строки. Конфликты `UNIQUE` исключены: телефоны нумеруются от `MAX`, логины, улицы и транзакции содержат UUID, а выплаты генерируются только для новых курьеров текущего вызова.
+- **Оплаты (BR-8.1, BR-11.7):** генератор создаёт ровно одну успешную оплату на заказ (`status = 'успех'`) для объёма `5 × value` строк.
+- **`erase_test_data()`:** выполняет `TRUNCATE TABLE` всех 12 таблиц без `RESTART IDENTITY`, так как все PK имеют тип `UUID` (BR-11.1).
 
 ### `add_product()` (FOOD-104)
 
-- **Обязательные параметры и понятные ошибки:** процедура явно валидирует входные аргументы и выбрасывает понятные исключения (`RAISE EXCEPTION`) до `INSERT`: при передаче `NULL` в обязательные параметры (`p_restaurant_id`, `p_product_category_id`, `p_name`, `p_price`, `p_description`, `p_status`), при несуществующих `p_restaurant_id` или `p_product_category_id`, при пустых/пробельных строках (`p_name`, `p_description`, `p_photo_url`), пробелах по краям или длине `p_name > 100`, а также при цене (`p_price < 0` или `ROUND(p_price, 2) > 99999999.99`) или рейтинге (`p_rating < 0 OR p_rating > 5`) вне допустимого диапазона.
-- **Параметр `p_rating`:** по умолчанию равен `NULL` (по BR-9.7 без отзывов рейтинг отсутствует), но может быть явно задан при добавлении блюда (как в тесте E.1). Обоснование из ответа преподавателя: ресторан готов платить за то, чтобы новые блюда сразу имели рейтинг `5`.
-- **Типизация и валидация параметра `p_status` (BR-5.5, BR-11.5):** параметр имеет тип `trondin_food.product_status` (со значением по умолчанию `'доступно'`). Любое неверное строковое значение (например, опечатка вроде `'нет в наличии'` с пробелами вместо подчеркиваний или несуществующий статус `'скрыто'`) отсекается парсером PostgreSQL еще при вызове, до выполнения тела процедуры, возвращая стандартную системную ошибку ввода перечисления (код `22P02`: `invalid input value for enum …`), а не сообщение через `RAISE EXCEPTION`. Внутри тела процедуры собственная проверка требуется только на передачу `NULL` (`IF p_status IS NULL THEN RAISE EXCEPTION ...`).
+- **Параметры и валидация:** процедура принимает все атрибуты кроме `product_id` (генерируется по умолчанию). До `INSERT` проверяются `NOT NULL` обязательных параметров, существование ресторана и категории, цена `>= 0` и рейтинг `0..5` (AC FOOD-104).
+- **Параметр `p_rating`:** по умолчанию `NULL` (по BR-9.7 без отзывов рейтинг отсутствует), но может быть явно передан при добавлении блюда (ресторан оплачивает начальный рейтинг нового блюда).
 
 ### `rating_change` (FOOD-105, BR-9.6, BR-9.7)
 
-- **Пересчет при всех операциях:** агрегированный рейтинг блюда (`product.rating`) и ресторана (`restaurant.rating`) считается как `ROUND(AVG(r.rating), 2)` в единой триггерной функции `rating_change()` при `INSERT`, `UPDATE` и `DELETE` на таблице `review`, включая смену оцениваемой сущности (`entity_type` или `entity_id`) при `UPDATE` (в этом случае пересчитываются и старая `OLD`, и новая `NEW` сущности; для `'заказ'` по BR-9.6 агрегат не хранится).
-- **Замена ручного рейтинга и возврат к `NULL` (BR-9.7):** заданный вручную при создании блюда рейтинг заменяется первым же реальным отзывом, а после удаления всех отзывов на сущность становится `NULL` (BR-9.7). Тесты E.3 и E.4 в `db/tests.md` наглядно это показывают.
+- **Единая триггерная функция:** обрабатывает `INSERT`, `UPDATE` и `DELETE` на таблице `review` через `TG_OP`, пересчитывая `ROUND(AVG(rating), 2)` для блюда и ресторана (для заказов рейтинг не хранится по BR-9.6). При переносе отзыва пересчитываются старая (`OLD`) и новая (`NEW`) сущности.
+- **Возврат к `NULL` (BR-9.7):** при удалении всех отзывов рейтинг сбрасывается в `NULL`.
 
 ### `get_statistic()` (FOOD-106, BR-2.6, BR-11.8, BR-13.2)
 
-- **Рестораны без доставленных заказов:** итоговый запрос выполняется `FROM trondin_food.restaurant` с тремя `LEFT JOIN` (агрегаты сумм заказов, лучшее блюдо, лучший клиент по доставленным заказам). Ресторан без доставок гарантированно дает одну строку в выдаче: суммы `total_amount` и `avg_amount` возвращаются как `0` через `COALESCE(..., 0)`, а названия `best_product_name` и `best_user` - как `NULL`.
-- **Доставленный заказ без позиций в `order_structure` (BR-7.14):** на уровне DDL таблица `"order"` допускает существование заказа без строк в `order_structure` (заказ создается до вставки его позиций, проверка непустого состава по BR-7.14 - уровень транзакции/приложения). Если у ресторана есть только доставленные заказы без позиций, `total_amount`, `avg_amount` и `best_user` будут заполнены, а `best_product_name` вернет `NULL` (исключение из ожидания AC «не `NULL` при наличии заказов»).
-- **Рестораны с одинаковым названием (BR-4.1, BR-3.3):** уникальность `restaurant_name` бизнес-правилами не требуется (уникален `address_id` по BR-3.3 - разные точки одной сети). Все группировки, `DISTINCT ON` и `LEFT JOIN` в `get_statistic()` выполняются строго по `restaurant_id`, поэтому одноименные рестораны возвращаются отдельными строками в полном соответствии с правилом AC «один ресторан - одна строка».
-- **`avg_amount` без округления в БД:** `AVG(d.total_amount)` возвращается как точный `NUMERIC` без `ROUND` (в частности, `1466.6666666666666667`), так как AC и бизнес-правила не задают правила округления для среднего чека в `get_statistic()`; форматирование и округление при отображении остаются на стороне бэкенда.
-- **`best_user` = `client.login` (BR-2.6):** по BR-2.6 ФИО клиента в БД не хранится (идентификация только по `login` и `phone_number`), поэтому в колонке `best_user` возвращается `client.login`.
-- **Оптимизация (BR-11.8):** доставленные заказы (`status = 'доставлен'`) отбираются один раз в `CTE ... AS MATERIALIZED`, а выбор лучшего блюда и лучшего клиента выполняется через `GROUP BY` + `DISTINCT ON (restaurant_id)` с сортировкой `ORDER BY restaurant_id, <агрегат> DESC, random()` без оконных функций, `LATERAL` и коррелированных подзапросов.
+- **Рестораны без доставок и состав заказа:** рестораны без доставок возвращают `0` в суммах и `NULL` в названии блюда и логине клиента. При наличии доставок `best_product_name` не `NULL` благодаря контролю непустого состава заказа (см. Ловушку 3).
+- **Оптимизация (BR-11.8):** доставленные заказы отбираются один раз в `CTE MATERIALIZED`, выбор лучшего блюда и клиента идёт через `GROUP BY` + `DISTINCT ON (restaurant_id)` без оконных функций, лучший клиент возвращается логином (BR-2.6).
 
-### `courier_salary()` (FOOD-107, BR-10.1 – BR-10.7)
+### `courier_salary()` (FOOD-107, BR-10.1–BR-10.7)
 
-- **Определение расчетного месяца по `order_timestamp` (BR-10.2, BR-10.5):** принадлежность доставленного заказа (`status = 'доставлен'`) к текущему месяцу определяется по времени создания заказа `order_timestamp` (`order_timestamp >= date_trunc('month', LOCALTIMESTAMP)` и `< date_trunc('month', LOCALTIMESTAMP) + INTERVAL '1 month'`), так же как в генераторе `insert_test_data` и проверочном запросе C.8 из `tests.md`. Пограничный заказ, созданный 31-го числа в конце месяца и доставленный 1-го числа следующего месяца, относится к месяцу создания.
-- **Создание записей в `courier_pay` для всех курьеров (BR-10.2, BR-10.6):** по формулировке BR-10.2 процедура выполняет расчет и вносит запись в `courier_pay` «для каждого курьера», поэтому выборка строится `FROM trondin_food.courier` без фильтрации по статусу или дате увольнения. Курьер, уволенный в текущем или в прошлых месяцах, тоже получает строку в `courier_pay` за текущий месяц (если доставок не было - с суммой `0.00`); эта запись ничего не нарушает и строго соответствует тексту BR-10.2 и BR-10.6, а обновление `courier.coefficient` на следующий месяц выполняется только для работающих курьеров (`status <> 'уволен'`).
-- **Повторный вызов и сохранение коэффициента текущего месяца (BR-10.2, BR-10.3):** первый вызов `courier_salary()` (а также генератор `insert_test_data`) сразу записывает в `courier.coefficient` коэффициент на следующий месяц. Чтобы повторный вызов в том же месяце не пересчитывал выплату по коэффициенту следующего месяца, процедура соединяется с `courier_pay` за текущий год и месяц (`LEFT JOIN`) и берет `COALESCE(cp.coefficient_used, c.coefficient)`, а при вставке в `courier_pay` использует `ON CONFLICT (year, month, courier_id) DO UPDATE SET amount = EXCLUDED.amount, coefficient_used = EXCLUDED.coefficient_used`.
+- **Расчетный месяц по `order_timestamp`:** наше решение — привязывать заказ к месяцу создания `order_timestamp` (согласовано с проверочным запросом C.8).
+- **Уволенные курьеры и повторный вызов (BR-10.2, BR-10.6):** уволенный курьер получает строку в `courier_pay` (при отсутствии доставок — 0.00), но коэффициент на следующий месяц ему не обновляется. Повторный вызов в том же месяце берёт уже сохранённый `coefficient_used` из `courier_pay` (`ON CONFLICT DO UPDATE`).
 
 ### `how_much_money` (FOOD-108, BR-11.9)
 
-- **Определение месяца по `order_timestamp`:** принадлежность доставленного заказа (`status = 'доставлен'`) к месяцу определяется по `date_trunc('month', order_timestamp)`, так же как в `courier_salary()`, генераторе `insert_test_data` и проверочном запросе C.8. Благодаря этому заказы и начисленные по ним выплаты курьерам в `courier_pay` гарантированно попадают в один и тот же отчетный месяц.
-- **Границы временного ряда:** отчет строится от первого (`MIN`) до последнего (`MAX`) месяца, в котором есть доставленные заказы (`status = 'доставлен'`). Заказы в иных статусах границы не сдвигают, поэтому текущий календарный месяц не попадет в выдачу, если в нем еще не было доставленных заказов.
-- **Поведение на пустой базе:** если доставленных заказов нет, представление возвращает `0` строк. Поскольку агрегаты `MIN`/`MAX` без `GROUP BY` на пустом наборе возвращают одну строку с `NULL`, стартовая часть рекурсивного CTE `months` явно отфильтровывает ее условием `WHERE min_month IS NOT NULL`.
-- **Месяцы без заказов внутри диапазона (BR-11.9):** для промежуточных месяцев без доставок все суммы (`sum_no_commission`, `sum_with_commission`, `commission`, `courier_pay`) и `net_profit` приводятся к `0` через `COALESCE(..., 0)`. В следующем за ним месяце `prev_commission` равен `0`, а не `NULL` (`NULL` в `prev_commission` и `commission_diff` возможен только у самого первого месяца отчета).
-- **Раздельная агрегация заказов и выплат:** суммы заказов (`orders_by_month`) и выплат курьерам (`pay_by_month`) агрегируются по месяцам в отдельных CTE до их `LEFT JOIN` с сеткой месяцев. Соединение таблиц `"order"` и `courier_pay` до группировки размножило бы строки заказов на число курьеров; при раздельной агрегации контрольная сверка с исходными таблицами дает расхождение `0.00`.
-- **Расчет `commission` как разности:** колонка `commission` вычисляется по формуле из AC `sum_with_commission - sum_no_commission`. Значение тождественно `SUM(order.commission)`, так как ограничение `chk_order_total_amount_sum` на таблице `"order"` гарантирует инвариант `total_amount = order_amount + commission` для каждой строки.
-- **Построчное округление `courier_pay`:** выплата в `courier_pay.amount` округляется до копеек (`ROUND(..., 2)`) отдельно по каждому курьеру и затем суммируется за месяц. Из-за суммы построчных округлений месячный итог `courier_pay` может отличаться на копейки от произведения коэффициента на общую комиссию месяца (так, на проверочном прогоне получилось `162.86` вместо `162.87`).
-- **Выплаты вне диапазона и в пустые месяцы:** левое соединение выполняется от сетки `months`, поэтому записи `courier_pay` за пределами `[min_month, max_month]` в отчет не попадают. Если внутри диапазона вручную вставить выплату в месяц без доставленных заказов (`commission = 0`), `net_profit` станет отрицательным (`0 - courier_pay`), однако при штатном расчете через `courier_salary()` в месяц без доставок начисляется `0.00`.
-- **Оптимизация и оконные функции (BR-11.8, BR-11.9):** таблица `"order"` читается ровно один раз в CTE `orders_by_month`. Использование рекурсивного CTE (`WITH RECURSIVE`) для генерации непрерывной сетки месяцев и оконной функции `LAG` для `prev_commission` / `commission_diff` прямо предписано правилом BR-11.9.
+- **Сетка месяцев и пропуски (BR-11.9):** непрерывная сетка строится через `WITH RECURSIVE` от первого до последнего месяца с доставками. Для пустых месяцев суммы приводятся к `0` через `COALESCE`.
+- **Оконная функция LAG (BR-11.9):** `prev_commission` вычисляется через `LAG`, у первого месяца равен `NULL` (BR-11.9 допускает LAG или рекурсию, выбран LAG).
 
 ### Права `inspector` (`db/schema/grants.sql`, FOOD-109)
 
-- **Права на таблицы и процедуры сверх буквы AC:** одних прав на схему `trondin_food` недостаточно для работы процедур и отчетов (без прав на объекты внутри схемы возникают `permission denied` при `TRUNCATE`/чтении/записи таблиц и обращении к `how_much_money`), поэтому дополнительно выданы `ALL PRIVILEGES ON ALL TABLES`, `ALL SEQUENCES` и `ALL ROUTINES IN SCHEMA trondin_food`.
-- **Повторяемое создание роли:** роли общие для всего кластера PostgreSQL, поэтому создание `inspector` обернуто в блок `DO $$ ... $$` с проверкой `pg_roles` (`CREATE ROLE`, если роли нет, и `ALTER ROLE ... WITH LOGIN PASSWORD 'NetoSQL2025'`, если она уже существует).
-- **Порядок запуска `grants.sql`:** команды `GRANT ... ON ALL ... IN SCHEMA` действуют только на уже существующие объекты и привязаны к конкретной БД, поэтому `grants.sql` запускается последним - после создания всех объектов схемы, а также повторно в новой БД после восстановления `.backup`.
+- **Объём прав:** выданы `ALL PRIVILEGES ON ALL TABLES, SEQUENCES, ROUTINES IN SCHEMA trondin_food`, так как одних прав на схему недостаточно для выполнения процедур и тестов.
+- **Порядок запуска:** `grants.sql` выполняется последним — после создания всех объектов схемы или после восстановления `.backup`.
 
 ### Бэкап (`db/foodexpress_trondin.backup`, FOOD-110, BR-13.3)
 
-- **Только схема `trondin_food`, без `exts` (BR-13.3):** архив создан в кастомном формате `pg_dump -Fc -n trondin_food` и содержит только объекты схемы `trondin_food` без схемы `exts` и расширения `uuid-ossp`.
-- **Без прав доступа (`--no-privileges`):** команды выдачи прав не включены в архив, так как их выдает скрипт `db/schema/grants.sql` после восстановления; иначе `pg_restore` на чистой БД падает с ошибкой на отсутствующей роли `inspector`.
-- **Без данных (`-s`):** архив содержит только определение схемы без данных, поскольку протокол проверки в `db/tests.md` начинается с вызова `erase_test_data()` и новой генерации через `insert_test_data()`. (При необходимости включить предзаполненные данные архив пересоздается тем же `pg_dump -Fc --no-privileges -n trondin_food` без флага `-s`.)
+- **Формат и состав (BR-13.3):** архив создан в формате `pg_dump -Fc -n trondin_food -s --no-privileges`, содержит только схему `trondin_food` без расширения `uuid-ossp` и без данных.
 
 ### Осознанные риски
 
-- **Отзыв и изменение заказа:** BR-9.2 проверяется при создании отзыва, а триггер на удаление позиции мог бы мешать каскадному удалению заказа. Изменение заказа после отзыва бизнес-процесс не предусматривает.
 - **Прямой `UPDATE pay_status`:** триггер пересчитывает статус при изменениях в `payment`, а прямая запись остается возможной.
-- **Вырожденные данные генератора:** один доставленный заказ на ресторан гарантирует непустые `best_product_name` и `best_user`, поэтому `total_amount = avg_amount`. Ранжирование и ничьи проверены на ручных данных.
-- **Оплата у отмененного заказа:** следствие одной успешной попытки на заказ (BR-8.1, BR-11.7).
-- **Дублирующие `UPDATE` в генераторе:** оставлены намеренно, чтобы генератор не зависел от `rating_change` (раздел 10 образцов).
-
+- **Вырожденные данные генератора:** генератор создаёт один доставленный заказ на ресторан, поэтому `total_amount = avg_amount`, а в `best_product_name` и `best_user` попадает единственный заказ этого ресторана.
+- **Оплата у отмененного заказа:** упрощение генератора (каждому заказу создается ровно одна успешная оплата, включая отмененные заказы).
+- **Явные `UPDATE` в генераторе:** в генераторе оставлены прямые обновления рейтингов и статусов, чтобы генерация оставалась автономной.

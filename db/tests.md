@@ -667,12 +667,16 @@ LIMIT 10;
 ### G.1. Права на схему
 
 ```sql
-SELECT privilege_type FROM information_schema.role_schema_grants
-WHERE grantee = 'inspector' AND schema_name = 'trondin_food';
+SELECT
+    nspname AS schema_name,
+    has_schema_privilege('inspector', nspname, 'USAGE')  AS usage,
+    has_schema_privilege('inspector', nspname, 'CREATE') AS create
+FROM pg_namespace
+WHERE nspname = 'trondin_food';
 ```
 
-Ожидается: `USAGE`, `CREATE` (полный доступ).
-Факт: true, true (has_schema_privilege) 
+Ожидается: `trondin_food`, `true`, `true` (полный доступ).
+Факт: `trondin_food`, `true`, `true`
 
 ### G.2. Права на таблицы
 

@@ -63,31 +63,6 @@ BEGIN
     IF p_rating IS NOT NULL AND (p_rating < 0 OR p_rating > 5) THEN
         RAISE EXCEPTION 'Рейтинг блюда должен быть в диапазоне от 0 до 5 (p_rating = %)', p_rating;
     END IF;
-
-    IF p_name !~ '\S' THEN
-        RAISE EXCEPTION 'Название блюда не может быть пустым или состоять только из пробелов (p_name = %)', p_name;
-    END IF;
-
-    IF p_name ~ '^\s|\s$' THEN
-        RAISE EXCEPTION 'Название блюда не должно содержать пробелы по краям (p_name = %)', p_name;
-    END IF;
-
-    IF char_length(p_name) > 100 THEN
-        RAISE EXCEPTION 'Название блюда не может быть длиннее 100 символов (длина = %)', char_length(p_name);
-    END IF;
-
-    IF p_description !~ '\S' THEN
-        RAISE EXCEPTION 'Описание блюда не может быть пустым или состоять только из пробелов (p_description = %)', p_description;
-    END IF;
-
-    IF p_photo_url IS NOT NULL AND p_photo_url !~ '\S' THEN
-        RAISE EXCEPTION 'Ссылка на фото блюда не может быть пустой или состоять только из пробелов (p_photo_url = %)', p_photo_url;
-    END IF;
-
-    IF ROUND(p_price, 2) > 99999999.99 THEN
-        RAISE EXCEPTION 'Цена блюда превышает максимально допустимое значение 99999999.99 (p_price = %)', p_price;
-    END IF;
-
     INSERT INTO trondin_food.product (
         product_name,
         product_category_id,

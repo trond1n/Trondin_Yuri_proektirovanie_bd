@@ -319,7 +319,7 @@ BEGIN
            o.total_amount,
            'txn_' || t.payment_id,
            LEAST(o.order_timestamp + (1 + floor(random() * 30)::int) * INTERVAL '1 minute', v_now),
-           -- 1-й элемент payment_status — 'успех' (по BR-8.1 у каждого заказа должна быть успешная оплата)
+           -- 1-й элемент payment_status — 'успех' (упрощение генератора: ровно одна успешная оплата на заказ)
            (enum_range(NULL::trondin_food.payment_status))[1]
     FROM unnest(v_payment_ids, v_order_ids) WITH ORDINALITY AS t(payment_id, order_id, rn)
     JOIN trondin_food."order" o ON o.order_id = t.order_id;

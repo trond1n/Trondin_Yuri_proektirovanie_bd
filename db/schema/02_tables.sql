@@ -14,22 +14,13 @@ address_id       UUID         NOT NULL DEFAULT exts.uuid_generate_v4(),
         PRIMARY KEY (address_id),
     
     CONSTRAINT chk_address_street
-        CHECK (street ~ '\S'),
-    
-    CONSTRAINT chk_address_street_trimmed
-        CHECK (street !~ '^\s|\s$'),
+        CHECK (trim(street) <> ''),
     
     CONSTRAINT chk_address_house_number
-        CHECK (house_number ~ '\S'),
-    
-    CONSTRAINT chk_address_house_number_trimmed
-        CHECK (house_number !~ '^\s|\s$'),
+        CHECK (trim(house_number) <> ''),
     
     CONSTRAINT chk_address_apartment_office
-        CHECK (apartment_office ~ '\S'),
-    
-    CONSTRAINT chk_address_apartment_office_trimmed
-        CHECK (apartment_office !~ '^\s|\s$')
+        CHECK (apartment_office IS NULL OR trim(apartment_office) <> '')
 );
 
 CREATE TABLE trondin_food.client (
@@ -49,10 +40,7 @@ CREATE TABLE trondin_food.client (
         UNIQUE (phone_number),
     
     CONSTRAINT chk_client_login
-        CHECK (login ~ '\S'),
-    
-    CONSTRAINT chk_client_login_trimmed
-        CHECK (login !~ '^\s|\s$'),
+        CHECK (trim(login) <> ''),
     
     CONSTRAINT chk_client_password_md5
         CHECK (password ~ '^[0-9a-f]{32}$'),
@@ -75,10 +63,7 @@ CREATE TABLE trondin_food.courier (
         PRIMARY KEY (courier_id),
 
     CONSTRAINT chk_courier_fio
-        CHECK (fio ~ '\S'),
-
-    CONSTRAINT chk_courier_fio_trimmed
-        CHECK (fio !~ '^\s|\s$'),
+        CHECK (trim(fio) <> ''),
 
     CONSTRAINT chk_courier_phone_number
         CHECK (phone_number ~ '^7[0-9]{10}$'),
@@ -95,7 +80,7 @@ CREATE TABLE trondin_food.courier (
     CONSTRAINT chk_courier_dismissal_status
         CHECK (
             (status = 'уволен' AND dismissal_date IS NOT NULL)
-            OR status <> 'уволен'
+            OR (status <> 'уволен' AND dismissal_date IS NULL)
         )
 );
 
@@ -109,10 +94,7 @@ CREATE TABLE trondin_food.product_category (
         PRIMARY KEY (product_category_id),
 
     CONSTRAINT chk_product_category_name
-        CHECK (product_category_name ~ '\S'),
-
-    CONSTRAINT chk_product_category_name_trimmed
-        CHECK (product_category_name !~ '^\s|\s$')
+        CHECK (trim(product_category_name) <> '')
 );
 
 
@@ -157,16 +139,13 @@ CREATE TABLE trondin_food.restaurant (
         ON DELETE RESTRICT,
 
     CONSTRAINT chk_restaurant_name
-        CHECK (restaurant_name ~ '\S'),
-
-    CONSTRAINT chk_restaurant_name_trimmed
-        CHECK (restaurant_name !~ '^\s|\s$'),
+        CHECK (trim(restaurant_name) <> ''),
 
     CONSTRAINT chk_restaurant_description
-        CHECK (description ~ '\S'),
+        CHECK (trim(description) <> ''),
 
     CONSTRAINT chk_restaurant_company_details
-        CHECK (company_details ~ '\S'),
+        CHECK (trim(company_details) <> ''),
 
     CONSTRAINT chk_restaurant_schedule
         CHECK (work_end > work_start),
@@ -229,18 +208,15 @@ CREATE TABLE trondin_food.product (
         ON DELETE RESTRICT,
 
     CONSTRAINT chk_product_name
-        CHECK (product_name ~ '\S'),
-
-    CONSTRAINT chk_product_name_trimmed
-        CHECK (product_name !~ '^\s|\s$'),
+        CHECK (trim(product_name) <> ''),
 
     CONSTRAINT chk_product_description
-        CHECK (description ~ '\S'),
+        CHECK (trim(description) <> ''),
 
     CONSTRAINT chk_product_photo_url
         CHECK (
             photo_url IS NULL
-            OR photo_url ~ '\S'
+            OR trim(photo_url) <> ''
         ),
 
     CONSTRAINT chk_product_price
@@ -304,7 +280,7 @@ CREATE TABLE trondin_food."order" (
         ON DELETE RESTRICT,
 
     CONSTRAINT chk_order_description
-        CHECK (description ~ '\S'),
+        CHECK (trim(description) <> ''),
 
     CONSTRAINT chk_order_order_amount
         CHECK (order_amount > 0),
@@ -365,12 +341,12 @@ CREATE TABLE trondin_food.review (
         ON DELETE CASCADE,
 
     CONSTRAINT chk_review_description
-        CHECK (description ~ '\S'),
+        CHECK (trim(description) <> ''),
 
     CONSTRAINT chk_review_photo_url
         CHECK (
             photo_url IS NULL
-            OR photo_url ~ '\S'
+            OR trim(photo_url) <> ''
         ),
 
     CONSTRAINT chk_review_rating
@@ -436,8 +412,5 @@ CONSTRAINT pk_payment
         CHECK (amount >= 1000),
     
     CONSTRAINT chk_payment_transaction_id
-        CHECK (transaction_id ~ '\S'),
-    
-    CONSTRAINT chk_payment_transaction_id_trimmed
-        CHECK (transaction_id !~ '^\s|\s$')
+        CHECK (trim(transaction_id) <> '')
 );
